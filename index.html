@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>베클로 발주서 생성기</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/officecrypto-tool@0.3.3/dist/index.umd.js"></script>
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;700&family=JetBrains+Mono:wght@400;600&display=swap');
 
@@ -489,12 +490,25 @@
     </div>
 
     <div class="upload-grid">
-      <div class="upload-card" id="naverCard" ondragover="dragOver(event,'naverCard')" ondragleave="dragLeave('naverCard')" ondrop="dropFile(event,'naver')">
-        <input type="file" accept=".xlsx,.xls,.csv" onchange="fileSelected(event,'naver')" multiple>
-        <div class="upload-icon">🛒</div>
-        <div class="upload-label">네이버 스마트스토어</div>
-        <div class="upload-sub">스마트스토어_주문.xlsx</div>
-        <div class="upload-filename" id="naverName"></div>
+      <div style="display:flex; flex-direction:column; gap:8px;">
+        <div class="upload-card" id="naverCard" ondragover="dragOver(event,'naverCard')" ondragleave="dragLeave('naverCard')" ondrop="dropFile(event,'naver')">
+          <input type="file" accept=".xlsx,.xls,.csv" onchange="fileSelected(event,'naver')" multiple>
+          <div class="upload-icon">🛒</div>
+          <div class="upload-label">네이버 스마트스토어</div>
+          <div class="upload-sub">스마트스토어_주문.xlsx</div>
+          <div class="upload-filename" id="naverName"></div>
+        </div>
+        <div style="display:flex; align-items:center; gap:8px; padding:0 4px;">
+          <label style="font-size:12px; color:var(--text2); white-space:nowrap;">🔒 비밀번호</label>
+          <input id="naverPassword" type="text" value="1111"
+            style="flex:1; padding:7px 10px; border:1.5px solid var(--border); border-radius:var(--radius); font-size:13px; font-family:var(--mono); background:var(--surface2); color:var(--text); outline:none;"
+            placeholder="비밀번호 입력">
+          <label style="display:flex; align-items:center; gap:5px; font-size:12px; color:var(--text2); cursor:pointer; white-space:nowrap;">
+            <input type="checkbox" id="naverNoPassword" onchange="toggleNaverPassword(this)"
+              style="width:14px; height:14px; cursor:pointer; accent-color:var(--accent);">
+            없음
+          </label>
+        </div>
       </div>
       <div class="upload-card" id="hyberCard" ondragover="dragOver(event,'hyberCard')" ondragleave="dragLeave('hyberCard')" ondrop="dropFile(event,'hyber')">
         <input type="file" accept=".xlsx,.xls,.csv" onchange="fileSelected(event,'hyber')" multiple>
@@ -1219,12 +1233,16 @@ function handleFiles(files, platform) {
 // ═══════════════════════════════════════════════
 // 엑셀 파싱
 // ═══════════════════════════════════════════════
-async function readExcel(file, headerRow=0) {
+async function readExcel(file, headerRow=0, password='') {
   return new Promise((resolve,reject) => {
     const reader = new FileReader();
-    reader.onload = e => {
+    reader.onload = async e => {
       try {
-        const wb = XLSX.read(e.target.result, {type:'array'});
+        let arrayBuffer = e.target.result;
+        if (password && typeof OfficeCrypto !== 'undefined') {
+          try { arrayBuffer = await OfficeCrypto.decrypt(arrayBuffer, {password}); } catch(e) {}
+        }
+        const wb = XLSX.read(arrayBuffer, {type:'array'});
         const ws = wb.Sheets[wb.SheetNames[0]];
         const data = XLSX.utils.sheet_to_json(ws, {header:1, defval:''});
         if (data.length <= headerRow) { resolve([]); return; }
@@ -1287,8 +1305,9 @@ async function generate() {
 
   try {
     setProgressVal(10,'주문서 파일 읽는 중...');
+    const naverPassword = document.getElementById('naverPassword').value.trim();
     const naverData = [];
-    for (const f of state.naverFiles) naverData.push(...await readExcel(f, 1));
+    for (const f of state.naverFiles) naverData.push(...await readExcel(f, 1, naverPassword));
     const hyberData = [];
     for (const f of state.hyberFiles) hyberData.push(...await readExcel(f, 0));
     const ablyData = [];
@@ -1427,6 +1446,19 @@ function downloadAll() {
 // ═══════════════════════════════════════════════
 // Toast
 // ═══════════════════════════════════════════════
+function toggleNaverPassword(checkbox) {
+  const input = document.getElementById('naverPassword');
+  if (checkbox.checked) {
+    input.value = '';
+    input.disabled = true;
+    input.style.opacity = '0.4';
+  } else {
+    input.disabled = false;
+    input.style.opacity = '1';
+    input.value = '1111';
+  }
+}
+
 function showToast(msg) {
   const t=document.getElementById('toast');
   t.textContent=msg; t.classList.add('show');
