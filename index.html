@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>베클로 발주서 생성기</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/officecrypto-tool@0.3.3/dist/index.umd.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/officecrypto-tool/dist/index.umd.js"></script>
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;700&family=JetBrains+Mono:wght@400;600&display=swap');
 
@@ -1239,8 +1239,47 @@ async function readExcel(file, headerRow=0, password='') {
     reader.onload = async e => {
       try {
         let arrayBuffer = e.target.result;
-        if (password && typeof OfficeCrypto !== 'undefined') {
-          try { arrayBuffer = await OfficeCrypto.decrypt(arrayBuffer, {password}); } catch(e) {}
+        // 비밀번호 있으면 해제 시도
+        if (password) {
+          try {
+            // officecrypto-tool 사용 시도
+            if (typeof OfficeCrypto !== 'undefined') {
+              arrayBuffer = await OfficeCrypto.decrypt(arrayBuffer, {password});
+            } else {
+              // SheetJS 자체 password 옵션으로 시도
+              const wb2 = XLSX.read(arrayBuffer, {type:'array', password});
+              const ws2 = wb2.Sheets[wb2.SheetNames[0]];
+              const data2 = XLSX.utils.sheet_to_json(ws2, {header:1, defval:''});
+              if (data2.length <= headerRow) { resolve([]); return; }
+              const headers2 = data2[headerRow];
+              const rows2 = data2.slice(headerRow+1).map(row => {
+                const obj = {};
+                headers2.forEach((h,i) => obj[String(h).trim()] = row[i]??'');
+                return obj;
+              });
+              resolve(rows2);
+              return;
+            }
+          } catch(decryptErr) {
+            // 비밀번호 해제 실패 시 SheetJS password 옵션으로 재시도
+            try {
+              const wb2 = XLSX.read(e.target.result, {type:'array', password});
+              const ws2 = wb2.Sheets[wb2.SheetNames[0]];
+              const data2 = XLSX.utils.sheet_to_json(ws2, {header:1, defval:''});
+              if (data2.length <= headerRow) { resolve([]); return; }
+              const headers2 = data2[headerRow];
+              const rows2 = data2.slice(headerRow+1).map(row => {
+                const obj = {};
+                headers2.forEach((h,i) => obj[String(h).trim()] = row[i]??'');
+                return obj;
+              });
+              resolve(rows2);
+              return;
+            } catch(e2) {
+              reject(new Error('비밀번호가 올바르지 않거나 파일을 열 수 없어요.'));
+              return;
+            }
+          }
         }
         const wb = XLSX.read(arrayBuffer, {type:'array'});
         const ws = wb.Sheets[wb.SheetNames[0]];
