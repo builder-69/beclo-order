@@ -796,7 +796,7 @@ function loadExceptionMapping(rows) {
     const 거래처상품명 = String(r['거래처 상품명']||'').trim();
     if (!거래처상품명 || 거래처상품명==='undefined') continue;
     let 거래처상품번호 = String(r['거래처 상품번호']||'').trim();
-    try { 거래처상품번호 = String(parseInt(parseFloat(거래처상품번호))); } catch {}
+    try { const _n = parseInt(parseFloat(거래처상품번호)); if (!isNaN(_n)) 거래처상품번호 = String(_n); } catch {}
 
     const platforms = [
       ['naver', '네이버 상품번호', '네이버 추가옵션'],
@@ -824,7 +824,7 @@ function buildMapping(rows) {
     const 거래처명 = String(r['거래처명']||'').trim();
     if (!거래처명 || 거래처명==='undefined') continue;
     let 거래처상품번호 = String(r['거래처 상품번호']||'').trim();
-    try { 거래처상품번호 = String(parseInt(parseFloat(거래처상품번호))); } catch {}
+    try { const _n = parseInt(parseFloat(거래처상품번호)); if (!isNaN(_n)) 거래처상품번호 = String(_n); } catch {}
     let 거래처상품명 = String(r['거래처 상품명']||'').trim();
     if (!거래처상품명 || 거래처상품명==='undefined') {
       const n = String(r['네이버 상품명']||'').trim();
@@ -938,7 +938,11 @@ function processOrders(naverData, hyberData, ablyData, mapping, exceptionMap) {
           for (const [matched, matchedNum] of matchedList) {
             let numStr;
             try { numStr = String(parseInt(parseFloat(matchedNum))); } catch { numStr=matchedNum; }
-            const cands = mapping.filter(m => String(m['거래처 상품번호']).trim()===numStr);
+            const cands = mapping.filter(m => {
+              const v = String(m['거래처 상품번호']).trim();
+              const vInt = parseInt(parseFloat(v));
+              return (!isNaN(vInt) ? String(vInt) : v) === numStr;
+            });
             if (!cands.length) { needsReview.push({상품번호, 옵션:옵션str, 수량, 플랫폼}); continue; }
             const 거래처명 = cands[0].거래처명;
             let 거래처컬러;
