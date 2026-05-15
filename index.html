@@ -6,6 +6,7 @@
 <title>베클로 발주서 생성기</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/officecrypto-tool/dist/index.umd.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;700&family=JetBrains+Mono:wght@400;600&display=swap');
 
@@ -510,12 +511,20 @@
           </label>
         </div>
       </div>
-      <div class="upload-card" id="hyberCard" ondragover="dragOver(event,'hyberCard')" ondragleave="dragLeave('hyberCard')" ondrop="dropFile(event,'hyber')">
-        <input type="file" accept=".xlsx,.xls,.csv" onchange="fileSelected(event,'hyber')" multiple>
-        <div class="upload-icon">👗</div>
-        <div class="upload-label">하이버</div>
-        <div class="upload-sub">배송준비_주문.xlsx</div>
-        <div class="upload-filename" id="hyberName"></div>
+      <div style="display:flex; flex-direction:column; gap:8px;">
+        <div class="upload-card" id="hyberCard" ondragover="dragOver(event,'hyberCard')" ondragleave="dragLeave('hyberCard')" ondrop="dropFile(event,'hyber')">
+          <input type="file" accept=".xlsx,.xls,.csv,.zip" onchange="fileSelected(event,'hyber')" multiple>
+          <div class="upload-icon">👗</div>
+          <div class="upload-label">하이버</div>
+          <div class="upload-sub">.xlsx / .csv / .zip</div>
+          <div class="upload-filename" id="hyberName"></div>
+        </div>
+        <div style="display:flex; align-items:center; gap:8px; padding:0 4px;">
+          <label style="font-size:12px; color:var(--text2); white-space:nowrap;">🔒 ZIP 비밀번호</label>
+          <input id="hyberPassword" type="password" value="Ensensthth6923!"
+            style="flex:1; padding:7px 10px; border:1.5px solid var(--border); border-radius:var(--radius); font-size:13px; font-family:var(--mono); background:var(--surface2); color:var(--text); outline:none;"
+            placeholder="ZIP 파일일 때만 입력">
+        </div>
       </div>
       <div class="upload-card" id="ablyCard" ondragover="dragOver(event,'ablyCard')" ondragleave="dragLeave('ablyCard')" ondrop="dropFile(event,'ably')">
         <input type="file" accept=".xlsx,.xls,.csv" onchange="fileSelected(event,'ably')" multiple>
@@ -1298,6 +1307,81 @@ async function readExcel(file, headerRow=0, password='') {
   });
 }
 
+async function readHyberFile(file, password='') {
+  const name = file.name.toLowerCase();
+
+  // ZIP 파일 처리
+  if (name.endsWith('.zip')) {
+    const arrayBuffer = await file.arrayBuffer();
+    const zip = new JSZip();
+    let loaded;
+    try {
+      loaded = await zip.loadAsync(arrayBuffer, { password });
+    } catch(e) {
+      throw new Error('ZIP 비밀번호가 올바르지 않거나 파일을 열 수 없어요.');
+    }
+    // zip 안의 첫 번째 xlsx 또는 csv 파일 찾기
+    const entries = Object.keys(loaded.files).filter(n =>
+      !loaded.files[n].dir && (n.endsWith('.xlsx') || n.endsWith('.xls') || n.endsWith('.csv'))
+    );
+    if (!entries.length) throw new Error('ZIP 안에 엑셀/CSV 파일이 없어요.');
+    const innerFile = loaded.files[entries[0]];
+    const innerBuffer = await innerFile.async('arraybuffer');
+    const innerName = entries[0].toLowerCase();
+    if (innerName.endsWith('.csv')) {
+      return parseCsvBuffer(innerBuffer);
+    } else {
+      return parseExcelBuffer(innerBuffer, 0);
+    }
+  }
+
+  // CSV 파일 처리
+  if (name.endsWith('.csv')) {
+    const arrayBuffer = await file.arrayBuffer();
+    return parseCsvBuffer(arrayBuffer);
+  }
+
+  // Excel 파일 처리
+  const arrayBuffer = await file.arrayBuffer();
+  return parseExcelBuffer(arrayBuffer, 0);
+}
+
+function parseCsvBuffer(arrayBuffer) {
+  const decoder = new TextDecoder('utf-8');
+  let text = decoder.decode(arrayBuffer);
+  // EUC-KR 깨짐 감지 시 재시도
+  if (text.includes('\ufffd')) {
+    const decoder2 = new TextDecoder('euc-kr');
+    text = decoder2.decode(arrayBuffer);
+  }
+  const rows = parseCsvText(text);
+  if (rows.length < 2) return [];
+  const headers = rows[0];
+  return rows.slice(1).map(row => {
+    const obj = {};
+    headers.forEach((h, i) => obj[String(h).trim()] = String(row[i] ?? '').trim());
+    return obj;
+  });
+}
+
+function parseExcelBuffer(arrayBuffer, headerRow = 0) {
+  const wb = XLSX.read(arrayBuffer, { type: 'array' });
+  const ws = wb.Sheets[wb.SheetNames[0]];
+  const data = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
+  if (data.length <= headerRow) return [];
+  const headers = data[headerRow];
+  return data.slice(headerRow + 1).map(row => {
+    const obj = {};
+    headers.forEach((h, i) => obj[String(h).trim()] = row[i] ?? '');
+    return obj;
+  });
+}
+
+function parseCsvText(text) {
+  const lines = text.split(/\r?\n/).filter(Boolean);
+  return lines.map(line => parseCsvLine(line));
+}
+
 async function readAblyExcel(file) {
   return new Promise((resolve,reject) => {
     const reader = new FileReader();
@@ -1347,8 +1431,9 @@ async function generate() {
     const naverPassword = document.getElementById('naverPassword').value.trim();
     const naverData = [];
     for (const f of state.naverFiles) naverData.push(...await readExcel(f, 1, naverPassword));
+    const hyberPassword = document.getElementById('hyberPassword').value.trim();
     const hyberData = [];
-    for (const f of state.hyberFiles) hyberData.push(...await readExcel(f, 0));
+    for (const f of state.hyberFiles) hyberData.push(...await readHyberFile(f, hyberPassword));
     const ablyData = [];
     for (const f of state.ablyFiles) ablyData.push(...await readAblyExcel(f));
 
