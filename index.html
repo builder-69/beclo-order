@@ -940,12 +940,14 @@ function processOrders(naverData, hyberData, ablyData, mapping, exceptionMap) {
           for (const [matched, matchedNum] of matchedList) {
             let numStr;
             try { numStr = String(parseInt(parseFloat(matchedNum))); } catch { numStr=matchedNum; }
+            // 거래처 상품번호로 매핑에서 거래처명 조회
             const cands = mapping.filter(m => String(m['거래처 상품번호']).trim()===numStr);
             if (!cands.length) { needsReview.push({상품번호, 옵션:옵션str, 수량, 플랫폼}); continue; }
             const 거래처명 = cands[0].거래처명;
             let 거래처컬러;
             if (플랫폼컬러) {
-              const cm = cands.find(m=>m.플랫폼컬러===플랫폼컬러);
+              // 같은 플랫폼 + 같은 거래처상품번호에서 컬러 매칭
+              const cm = cands.find(m => m.플랫폼===플랫폼 && m.플랫폼컬러===플랫폼컬러);
               거래처컬러 = cm ? cm.거래처컬러 : 플랫폼컬러;
             } else {
               거래처컬러 = '[컬러 확인 필요]';
