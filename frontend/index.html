@@ -582,6 +582,7 @@
 // 상태
 // ═══════════════════════════════════════════════
 const state = {
+  apiBaseUrl: window.BECLO_API_BASE_URL || 'http://localhost:8000',
   mapping: null,        // DataFrame (rows array)
   exceptionMap: null,   // dict
   naverFiles: [],
@@ -1385,7 +1386,140 @@ async function readAblyExcel(file) {
 // ═══════════════════════════════════════════════
 // 생성 실행
 // ═══════════════════════════════════════════════
+async function generateWithBackend() {
+  const errBox = document.getElementById('errorBox');
+  errBox.style.display = 'none';
+
+  const hasOrder = state.naverFiles.length || state.hyberFiles.length || state.ablyFiles.length;
+  if (!hasOrder) {
+    showError('Please upload at least one order file.');
+    return;
+  }
+
+  setProgress(true);
+  setProgressVal(10, 'Uploading files to backend...');
+  document.getElementById('generateBtn').disabled = true;
+  document.getElementById('resultSection').style.display = 'none';
+
+  try {
+    const formData = new FormData();
+    formData.append('sheets_url', document.getElementById('sheetsUrl').value.trim());
+    formData.append('naver_password', document.getElementById('naverPassword').value.trim());
+    if (state.mapping) formData.append('mapping_json', JSON.stringify(state.mapping));
+    if (state.exceptionMap) formData.append('exception_json', JSON.stringify(state.exceptionMap));
+
+    for (const file of state.naverFiles) formData.append('naver_files', file);
+    for (const file of state.hyberFiles) formData.append('hyber_files', file);
+    for (const file of state.ablyFiles) formData.append('ably_files', file);
+
+    setProgressVal(45, 'Processing in backend...');
+    const response = await fetch(`${state.apiBaseUrl}/generate`, {
+      method: 'POST',
+      body: formData,
+    });
+
+    if (!response.ok) {
+      let message = `Backend request failed (${response.status})`;
+      try {
+        const errorBody = await response.json();
+        message = errorBody.detail || errorBody.message || message;
+      } catch (_) {}
+      throw new Error(message);
+    }
+
+    const blob = await response.blob();
+    const filename = getDownloadFilename(response.headers.get('Content-Disposition')) || makeTxtFilename();
+    downloadBlob(blob, filename);
+
+    setProgressVal(100, 'TXT download ready');
+    setTimeout(() => {
+      setProgress(false);
+      showToast('발주서 TXT 파일 다운로드를 시작했습니다.');
+    }, 300);
+  } catch (e) {
+    setProgress(false);
+    showError(`Error: ${e.message}`);
+    console.error(e);
+  } finally {
+    document.getElementById('generateBtn').disabled = false;
+  }
+}
+
+function getDownloadFilename(contentDisposition) {
+  if (!contentDisposition) return '';
+  const utf8Match = contentDisposition.match(/filename\*=UTF-8''([^;]+)/i);
+  if (utf8Match) return decodeURIComponent(utf8Match[1]);
+  const asciiMatch = contentDisposition.match(/filename="?([^"]+)"?/i);
+  return asciiMatch ? asciiMatch[1] : '';
+}
+
+function makeTxtFilename() {
+  const today = new Date();
+  const mm = String(today.getMonth() + 1).padStart(2, '0');
+  const dd = String(today.getDate()).padStart(2, '0');
+  return `발주서_${mm}${dd}.txt`;
+}
+
+function downloadBlob(blob, filename) {
+  const a = document.createElement('a');
+  const url = URL.createObjectURL(blob);
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
+function renderBackendResult(data) {
+  const section = document.getElementById('resultSection');
+  section.style.display = 'block';
+
+  document.getElementById('resultMeta').innerHTML = `
+    <div class="meta-card">
+      <div class="meta-label">Suppliers</div>
+      <div class="meta-value">${data.suppliers_count || 0}</div>
+    </div>
+    <div class="meta-card">
+      <div class="meta-label">Uploaded Files</div>
+      <div class="meta-value">${data.order_count || 0}</div>
+    </div>
+    <div class="meta-card">
+      <div class="meta-label">Generated Qty</div>
+      <div class="meta-value ${data.is_valid ? 'ok' : 'warn'}">${data.generated_count || 0}</div>
+    </div>
+  `;
+
+  document.getElementById('validationBanner').innerHTML = data.is_valid
+    ? `<div class="validation-banner pass"><span class="validation-icon">OK</span> Backend validation passed.</div>`
+    : `<div class="validation-banner fail"><span class="validation-icon">!</span> Backend response received. Difference: ${data.difference || 0}</div>`;
+
+  const tabsEl = document.getElementById('supplierTabs');
+  tabsEl.innerHTML = '';
+  const suppliers = Object.keys(state.outputBySupplier).sort();
+  if (suppliers.length) {
+    for (const supplier of suppliers) {
+      const btn = document.createElement('button');
+      btn.className = 'tab';
+      btn.textContent = supplier;
+      btn.onclick = () => selectTab(supplier);
+      tabsEl.appendChild(btn);
+    }
+    selectTab(suppliers[0]);
+  } else {
+    document.getElementById('currentSupplierLabel').textContent = '';
+    document.getElementById('outputBox').textContent = data.message || '';
+  }
+
+  document.getElementById('warningSection').innerHTML = '';
+  section.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
 async function generate() {
+  await generateWithBackend();
+}
+
+async function generateLegacy() {
   const errBox = document.getElementById('errorBox');
   errBox.style.display='none';
 

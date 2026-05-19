@@ -1,70 +1,134 @@
 """
-발주서 자동 생성 메인 스크립트
+Order generation entry point.
+
+This module keeps the existing processing pipeline together so api.py can stay
+as a thin HTTP adapter.
 """
 
-import pandas as pd
+from __future__ import annotations
+
+import json
 import os
-import glob
-
-# 모듈 임포트
 import sys
-sys.path.insert(0, '/mnt/skills/user/purchase-order')
+from pathlib import Path
+from typing import Any
 
-from helpers import *
+import pandas as pd
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
 from mapping import build_mapping, load_exception_mapping
-from process import process_orders
 from output import generate_output, validate_quantities
+from process import process_orders
 
-# ── Step 1. 파일 확인 ──────────────────────────────────
 
-uploaded = glob.glob('/mnt/user-data/uploads/*.xlsx') + \
-           glob.glob('/mnt/user-data/uploads/*.xls') + \
-           glob.glob('/mnt/user-data/uploads/*.csv')
+class OrderGenerationError(Exception):
+    """User-facing order generation failure."""
 
-# 매핑 파일 찾기
-mapping_file = next(
-    (f for f in uploaded if any(k in os.path.basename(f) for k in ['베클로', '거래처', '상품리스트'])),
-    None
-)
 
-if not mapping_file:
-    raise FileNotFoundError(
-        "베클로 거래처 상품리스트 파일을 찾을 수 없습니다.\n"
-        "'베클로_거래처_상품리스트.xlsx' 파일을 주문서 파일과 함께 업로드해주세요."
+def _load_mapping_from_json(mapping_json: str | None) -> pd.DataFrame | None:
+    if not mapping_json:
+        return None
+    try:
+        rows = json.loads(mapping_json)
+    except json.JSONDecodeError as exc:
+        raise OrderGenerationError("상품 매핑 정보를 읽을 수 없습니다. Google Sheets를 다시 불러와 주세요.") from exc
+    if not isinstance(rows, list):
+        raise OrderGenerationError("상품 매핑 형식이 올바르지 않습니다. Google Sheets를 다시 불러와 주세요.")
+    return pd.DataFrame(rows)
+
+
+def _load_exception_map_from_json(exception_json: str | None) -> dict[tuple[str, str, str], list[list[str]]]:
+    if not exception_json:
+        return {}
+    try:
+        raw = json.loads(exception_json)
+    except json.JSONDecodeError as exc:
+        raise OrderGenerationError("예외 매핑 정보를 읽을 수 없습니다. Google Sheets를 다시 불러와 주세요.") from exc
+    if not isinstance(raw, dict):
+        raise OrderGenerationError("예외 매핑 형식이 올바르지 않습니다. Google Sheets를 다시 불러와 주세요.")
+
+    exception_map: dict[tuple[str, str, str], list[list[str]]] = {}
+    for key, products in raw.items():
+        parts = str(key).split("|", 2)
+        if len(parts) != 3:
+            continue
+        exception_map[(parts[0], parts[1], parts[2])] = products
+    return exception_map
+
+
+def _load_mapping_from_file(mapping_file: str) -> tuple[pd.DataFrame, dict[tuple[str, str, str], Any]]:
+    try:
+        mapping_df = pd.read_excel(mapping_file, sheet_name="상품리스트")
+        exc_df = pd.read_excel(mapping_file, sheet_name="예외매핑")
+    except Exception as exc:
+        raise OrderGenerationError("거래처 상품리스트 파일을 읽을 수 없습니다.") from exc
+    return build_mapping(mapping_df), load_exception_mapping(exc_df)
+
+
+def _find_mapping_file(uploaded: list[str]) -> str | None:
+    keywords = ["베클로", "거래처", "상품리스트"]
+    return next(
+        (path for path in uploaded if any(keyword in os.path.basename(path) for keyword in keywords)),
+        None,
     )
 
-print(f"매핑 파일: {os.path.basename(mapping_file)}")
 
-# ── Step 2. 매핑 데이터 로드 ────────────────────────────
+def run_generate(
+    uploaded_files: list[str],
+    work_dir: str | os.PathLike[str],
+    mapping_json: str | None = None,
+    exception_json: str | None = None,
+) -> str:
+    """
+    Run the existing order generation pipeline and return one TXT file path.
+    """
+    uploaded = [str(Path(path)) for path in uploaded_files]
+    if not uploaded:
+        raise OrderGenerationError("주문서 파일을 1개 이상 업로드해 주세요.")
 
-mapping_df = pd.read_excel(mapping_file, sheet_name='상품리스트')
-exc_df = pd.read_excel(mapping_file, sheet_name='예외매핑')
+    output_dir = Path(work_dir) / "outputs"
+    output_dir.mkdir(parents=True, exist_ok=True)
 
-exception_map = load_exception_mapping(exc_df)
-mapping = build_mapping(mapping_df)
+    mapping_file = _find_mapping_file(uploaded)
+    mapping = _load_mapping_from_json(mapping_json)
+    exception_map = _load_exception_map_from_json(exception_json)
 
-print(f"예외매핑: {len(exception_map)}개")
-print(f"매핑 데이터: {len(mapping)}개 행")
+    if mapping is None:
+        if not mapping_file:
+            raise OrderGenerationError("거래처 상품리스트가 연결되지 않았습니다. Google Sheets를 먼저 불러와 주세요.")
+        mapping, exception_map = _load_mapping_from_file(mapping_file)
 
-# ── Step 3. 주문서 처리 ─────────────────────────────────
+    if mapping_file is None:
+        mapping_file = str(Path(work_dir) / "_mapping_placeholder.xlsx")
 
-print("\n주문서 처리 중...")
-result, needs_review, no_mapping = process_orders(uploaded, mapping_file, mapping, exception_map)
+    result, needs_review, no_mapping = process_orders(uploaded, mapping_file, mapping, exception_map)
 
-# ── Step 4. 임시 발주서 생성 (검수용) ───────────────────
+    output_path_temp = generate_output(
+        result,
+        needs_review,
+        no_mapping,
+        uploaded,
+        mapping_file,
+        output_dir=str(output_dir),
+    )
 
-output_path_temp = generate_output(result, needs_review, no_mapping, uploaded, mapping_file)
+    validation_summary = validate_quantities(
+        uploaded,
+        mapping_file,
+        output_path_temp,
+        result=result,
+        no_mapping=no_mapping,
+        exception_map=exception_map,
+    )
+    validation_summary["거래처_수"] = len(result)
 
-# ── Step 5. 수량 검수 ───────────────────────────────────
-
-validation_summary = validate_quantities(uploaded, mapping_file, output_path_temp, result=result, no_mapping=no_mapping)
-validation_summary['거래처_수'] = len(result)
-
-# ── Step 6. 최종 발주서 생성 (검수 결과 포함) ────────────
-
-output_path = generate_output(result, needs_review, no_mapping, uploaded, mapping_file, validation_summary)
-
-# ── Step 7. 결과 출력 ───────────────────────────────────
-
-print(f"\n발주서 생성 완료: {output_path}")
-print(f"거래처 수: {len(result)}개")
+    return generate_output(
+        result,
+        needs_review,
+        no_mapping,
+        uploaded,
+        mapping_file,
+        validation_summary,
+        output_dir=str(output_dir),
+    )

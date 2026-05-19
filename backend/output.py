@@ -10,7 +10,7 @@ from datetime import date
 from collections import defaultdict
 from helpers import parse_option_items, clean_color_for_output
 
-def generate_output(result, needs_review, no_mapping, uploaded, mapping_file, validation_summary=None):
+def generate_output(result, needs_review, no_mapping, uploaded, mapping_file, validation_summary=None, output_dir="/mnt/user-data/outputs"):
     """
     발주서 텍스트 생성 및 파일 저장
     
@@ -122,14 +122,15 @@ def generate_output(result, needs_review, no_mapping, uploaded, mapping_file, va
         today = date.today()
         file_date = today.strftime('%m%d')
 
-    output_path = f"/mnt/user-data/outputs/발주서_{file_date}.txt"
+    os.makedirs(output_dir, exist_ok=True)
+    output_path = os.path.join(output_dir, f"발주서_{file_date}.txt")
     with open(output_path, 'w', encoding='utf-8') as f:
         f.write(output)
 
     return output_path
 
 
-def validate_quantities(uploaded, mapping_file, output_path, result=None, no_mapping=None):
+def validate_quantities(uploaded, mapping_file, output_path, result=None, no_mapping=None, exception_map=None):
     """
     주문서와 발주서 수량 검수
     
@@ -144,12 +145,13 @@ def validate_quantities(uploaded, mapping_file, output_path, result=None, no_map
         dict: 검수 요약 정보
     """
     # 예외매핑 로드 (SET, 1+1 등으로 분리되는 케이스 확인용)
-    from mapping import load_exception_mapping
-    try:
-        exc_df = pd.read_excel(mapping_file, sheet_name='예외매핑')
-        exception_map = load_exception_mapping(exc_df)
-    except:
-        exception_map = {}
+    if exception_map is None:
+        from mapping import load_exception_mapping
+        try:
+            exc_df = pd.read_excel(mapping_file, sheet_name='예외매핑')
+            exception_map = load_exception_mapping(exc_df)
+        except:
+            exception_map = {}
     
     def calculate_order_quantity(df, 옵션col, 수량col, 상품번호col, platform):
         """
