@@ -5,8 +5,6 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>베클로 발주서 생성기</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/officecrypto-tool/dist/index.umd.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;700&family=JetBrains+Mono:wght@400;600&display=swap');
 
@@ -581,8 +579,10 @@
 // ═══════════════════════════════════════════════
 // 상태
 // ═══════════════════════════════════════════════
+// Render 배포 URL. 필요하면 아래 값만 교체하세요.
+const BECLO_API_BASE_URL = "https://beclo-order-api.onrender.com";
+
 const state = {
-  apiBaseUrl: window.BECLO_API_BASE_URL || 'http://localhost:8000',
   mapping: null,        // DataFrame (rows array)
   exceptionMap: null,   // dict
   naverFiles: [],
@@ -1160,26 +1160,24 @@ async function loadSheets() {
   txt.textContent='불러오는 중...'; txt.style.color='var(--warn)';
 
   try {
-    const csvUrl1 = `https://docs.google.com/spreadsheets/d/${id}/gviz/tq?tqx=out:csv&sheet=상품리스트`;
-    const csvUrl2 = `https://docs.google.com/spreadsheets/d/${id}/gviz/tq?tqx=out:csv&sheet=예외매핑`;
+    const response = await fetch(`${BECLO_API_BASE_URL}/load-sheets`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sheets_url: url }),
+    });
+    if (!response.ok) throw new Error('구글시트를 불러올 수 없습니다. 공유 설정과 탭 이름을 확인하세요.');
 
-    const [r1, r2] = await Promise.all([fetch(csvUrl1), fetch(csvUrl2)]);
-    if (!r1.ok || !r2.ok) throw new Error('시트를 불러올 수 없어요. 공유 설정을 확인하세요.');
-
-    const [csv1, csv2] = await Promise.all([r1.text(), r2.text()]);
-    const mappingRows = parseCsv(csv1);
-    const excRows = parseCsv(csv2);
-
-    state.mapping = buildMapping(mappingRows);
-    state.exceptionMap = loadExceptionMapping(excRows);
+    const data = await response.json();
+    state.mapping = data.mapping;
+    state.exceptionMap = data.exceptionMap;
 
     dot.className='status-dot ok';
-    txt.textContent=`연결 완료 — 상품 ${mappingRows.length}개, 예외매핑 ${excRows.length}개`;
+    txt.textContent=`연결 완료 — 상품 ${data.mappingRowsCount || 0}개, 예외매핑 ${data.exceptionRowsCount || 0}개`;
     txt.style.color='var(--success)';
     showToast('거래처 상품리스트 불러오기 완료!');
   } catch(e) {
     dot.className='status-dot err';
-    txt.textContent=`오류: ${e.message}`;
+    txt.textContent='구글시트를 불러올 수 없습니다. 공유 설정과 탭 이름을 확인하세요.';
     txt.style.color='var(--error)';
   }
 }
@@ -1254,7 +1252,7 @@ async function readExcel(file, headerRow=0, password='') {
         // 비밀번호 있으면 해제 시도
         if (password) {
           try {
-            // officecrypto-tool 사용 시도
+            // Legacy mode: optional OfficeCrypto가 있으면 사용하고, 없으면 SheetJS로 시도
             if (typeof OfficeCrypto !== 'undefined') {
               arrayBuffer = await OfficeCrypto.decrypt(arrayBuffer, {password});
             } else {
@@ -1413,7 +1411,7 @@ async function generateWithBackend() {
     for (const file of state.ablyFiles) formData.append('ably_files', file);
 
     setProgressVal(45, 'Processing in backend...');
-    const response = await fetch(`${state.apiBaseUrl}/generate`, {
+    const response = await fetch(`${BECLO_API_BASE_URL}/generate`, {
       method: 'POST',
       body: formData,
     });

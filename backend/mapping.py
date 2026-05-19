@@ -6,6 +6,24 @@
 import pandas as pd
 from helpers import split_csv, parse_platform_color, parse_platform_size
 
+
+def _normalize_exception_number(value, numeric=True):
+    if value is None or pd.isna(value):
+        return ""
+
+    text = str(value).strip()
+    if not text or text.lower() == "nan":
+        return ""
+
+    if not numeric:
+        return text
+
+    try:
+        return str(int(float(text))).strip()
+    except (TypeError, ValueError):
+        return text
+
+
 def load_exception_mapping(exc_df):
     """
     예외매핑 시트에서 예외매핑 딕셔너리 생성
@@ -23,21 +41,23 @@ def load_exception_mapping(exc_df):
         거래처상품번호 = str(r.get('거래처 상품번호', '')).strip()
         
         # 네이버
-        if pd.notna(r.get('네이버 상품번호')) and pd.notna(r.get('네이버 추가옵션')):
-            네이버번호 = str(int(float(r['네이버 상품번호']))).strip()
-            네이버옵션 = str(r['네이버 추가옵션']).strip()
+        네이버번호 = _normalize_exception_number(r.get('네이버 상품번호'))
+        네이버옵션 = str(r.get('네이버 추가옵션', '')).strip()
+        if 네이버번호 and 네이버옵션:
             exception_map[('naver', 네이버번호, 네이버옵션)].append((거래처상품명, 거래처상품번호))
         
         # 하이버
-        if pd.notna(r.get('하이버 상품번호')) and pd.notna(r.get('하이버 추가옵션')):
-            하이버번호 = str(int(float(r['하이버 상품번호']))).strip()
-            하이버옵션 = str(r['하이버 추가옵션']).strip()
+        하이버번호 = _normalize_exception_number(r.get('하이버 상품번호'))
+        하이버옵션 = str(r.get('하이버 추가옵션', '')).strip()
+        if 하이버번호 and 하이버옵션:
             exception_map[('hyber', 하이버번호, 하이버옵션)].append((거래처상품명, 거래처상품번호))
         
         # 에이블리
-        if pd.notna(r.get('에이블리 상품코드')) and pd.notna(r.get('에이블리 추가옵션')):
-            에이블리코드 = str(r['에이블리 상품코드']).strip()
-            에이블리옵션 = str(r['에이블리 추가옵션']).strip()
+        에이블리코드 = _normalize_exception_number(r.get('에이블리 상품코드'), numeric=False)
+        if not 에이블리코드:
+            에이블리코드 = _normalize_exception_number(r.get('에이블리 상품번호'))
+        에이블리옵션 = str(r.get('에이블리 추가옵션', '')).strip()
+        if 에이블리코드 and 에이블리옵션:
             exception_map[('ably', 에이블리코드, 에이블리옵션)].append((거래처상품명, 거래처상품번호))
     
     return dict(exception_map)
