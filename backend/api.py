@@ -151,9 +151,13 @@ async def generate(
         )
     except OrderGenerationError as exc:
         shutil.rmtree(work_dir, ignore_errors=True)
+        print("[generate] OrderGenerationError traceback:", flush=True)
+        traceback.print_exc()
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
         shutil.rmtree(work_dir, ignore_errors=True)
+        print("[generate] unexpected error traceback:", flush=True)
+        traceback.print_exc()
         raise HTTPException(
             status_code=500,
             detail="발주서 생성 중 오류가 발생했습니다. 업로드 파일과 상품리스트 연결 상태를 확인해 주세요.",
