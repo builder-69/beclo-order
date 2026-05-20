@@ -579,8 +579,18 @@
 // ═══════════════════════════════════════════════
 // 상태
 // ═══════════════════════════════════════════════
-// Render 배포 URL. 필요하면 아래 값만 교체하세요.
-const BECLO_API_BASE_URL = "https://beclo-order-api.onrender.com";
+const LOCAL_API_BASE_URL = "http://127.0.0.1:8000";
+const PROD_API_BASE_URL = "https://beclo-order-api.onrender.com";
+
+function getApiBaseUrl() {
+  const hostname = window.location.hostname;
+  if (hostname === "127.0.0.1" || hostname === "localhost") {
+    return LOCAL_API_BASE_URL;
+  }
+  return PROD_API_BASE_URL;
+}
+
+const API_BASE_URL = getApiBaseUrl();
 
 const state = {
   mapping: null,        // DataFrame (rows array)
@@ -1160,7 +1170,7 @@ async function loadSheets() {
   txt.textContent='불러오는 중...'; txt.style.color='var(--warn)';
 
   try {
-    const response = await fetch(`${BECLO_API_BASE_URL}/load-sheets`, {
+    const response = await fetch(`${API_BASE_URL}/load-sheets`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ sheets_url: url }),
@@ -1411,7 +1421,7 @@ async function generateWithBackend() {
     for (const file of state.ablyFiles) formData.append('ably_files', file);
 
     setProgressVal(45, 'Processing in backend...');
-    const response = await fetch(`${BECLO_API_BASE_URL}/generate`, {
+    const response = await fetch(`${API_BASE_URL}/generate`, {
       method: 'POST',
       body: formData,
     });

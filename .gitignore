@@ -5,3 +5,7 @@ venv/
 .venv/
 node_modules/
 desktop.ini
+backend/temp/
+backend/outputs/
+backend/__pycache__/
+*.pyc
