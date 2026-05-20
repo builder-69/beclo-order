@@ -1429,6 +1429,13 @@ async function generateWithBackend() {
     const filename = getDownloadFilename(response.headers.get('Content-Disposition')) || makeTxtFilename();
     downloadBlob(blob, filename);
 
+    try {
+      const txt = await blob.text();
+      renderBackendTextResult(txt);
+    } catch (parseErr) {
+      console.warn('TXT preview parsing failed:', parseErr);
+    }
+
     setProgressVal(100, 'TXT download ready');
     setTimeout(() => {
       setProgress(false);
@@ -1467,6 +1474,109 @@ function downloadBlob(blob, filename) {
   a.click();
   a.remove();
   URL.revokeObjectURL(url);
+}
+
+function parseSupplierMessagesFromTxt(text) {
+  const lines = String(text || '').split(/\r?\n/);
+  const sections = {};
+  let currentSection = '수량 검수 결과';
+  let currentLines = [];
+
+  function uniqueTitle(title) {
+    if (!sections[title]) return title;
+    let i = 2;
+    while (sections[`${title} ${i}`]) i++;
+    return `${title} ${i}`;
+  }
+
+  function flush() {
+    const message = currentLines.join('\n').trim();
+    if (message) sections[uniqueTitle(currentSection)] = message;
+  }
+
+  for (const line of lines) {
+    const match = line.match(/^\[([^\]]+)\]\s*$/);
+    if (match) {
+      flush();
+      currentSection = match[1].trim();
+      currentLines = [line];
+      continue;
+    }
+
+    currentLines.push(line);
+  }
+
+  flush();
+  return sections;
+}
+
+function escapeHtml(text) {
+  return String(text || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+
+function renderBackendTextResult(fullText) {
+  state.fullOutput = fullText;
+  const parsedSections = parseSupplierMessagesFromTxt(fullText);
+  const validationText = parsedSections['수량 검수 결과'] || '';
+  delete parsedSections['수량 검수 결과'];
+
+  state.outputBySupplier = parsedSections;
+  state.currentTab = null;
+
+  const sections = Object.keys(state.outputBySupplier);
+  if (!sections.length && !validationText) return;
+
+  const section = document.getElementById('resultSection');
+  section.style.display = 'block';
+
+  document.getElementById('resultMeta').innerHTML = `
+    <div class="meta-card">
+      <div class="meta-label">표시 섹션</div>
+      <div class="meta-value">${sections.length}<span style="font-size:14px;font-weight:400">개</span></div>
+    </div>
+    <div class="meta-card">
+      <div class="meta-label">TXT 다운로드</div>
+      <div class="meta-value ok">완료</div>
+    </div>
+    <div class="meta-card">
+      <div class="meta-label">화면 미리보기</div>
+      <div class="meta-value ok">가능</div>
+    </div>
+  `;
+
+  document.getElementById('validationBanner').innerHTML = validationText
+    ? `<div class="validation-banner pass" style="align-items:flex-start;">
+        <span class="validation-icon">OK</span>
+        <div style="flex:1;">
+          <div style="font-weight:700; margin-bottom:8px;">수량 검수 결과</div>
+          <pre style="margin:0; white-space:pre-wrap; font-family:var(--mono); font-size:12px; line-height:1.7;">${escapeHtml(validationText)}</pre>
+        </div>
+      </div>`
+    : `<div class="validation-banner pass"><span class="validation-icon">OK</span> TXT 다운로드가 완료되었습니다. 거래처별 내용을 화면에서 확인할 수 있습니다.</div>`;
+
+  const tabsEl = document.getElementById('supplierTabs');
+  tabsEl.innerHTML = '';
+  for (const supplier of sections) {
+    const btn = document.createElement('button');
+    btn.className = 'tab';
+    btn.textContent = supplier;
+    btn.onclick = () => selectTab(supplier);
+    tabsEl.appendChild(btn);
+  }
+
+  document.getElementById('warningSection').innerHTML = '';
+  if (sections.length) {
+    selectTab(sections[0]);
+  } else {
+    document.getElementById('currentSupplierLabel').textContent = '';
+    document.getElementById('outputBox').textContent = '';
+  }
+  section.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
 function renderBackendResult(data) {
