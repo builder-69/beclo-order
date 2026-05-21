@@ -20,6 +20,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from mapping import build_mapping, load_exception_mapping
 from output import generate_output, validate_quantities
 from process import process_orders
+from file_prepare import FilePreparationError, prepare_uploaded_order_files
 
 
 class OrderGenerationError(Exception):
@@ -111,8 +112,17 @@ def run_generate(
     if mapping_file is None:
         mapping_file = str(Path(work_dir) / "_mapping_placeholder.xlsx")
 
-    print(f"[run_generate] passing to process_orders: {[Path(path).name for path in uploaded]}", flush=True)
-    result, needs_review, no_mapping = process_orders(uploaded, mapping_file, mapping, exception_map)
+    try:
+        prepared_uploaded = prepare_uploaded_order_files(
+            uploaded,
+            Path(work_dir) / "prepared",
+            mapping_file=mapping_file,
+        )
+    except FilePreparationError as exc:
+        raise OrderGenerationError(str(exc)) from exc
+
+    print(f"[run_generate] passing to process_orders: {[Path(path).name for path in prepared_uploaded]}", flush=True)
+    result, needs_review, no_mapping = process_orders(prepared_uploaded, mapping_file, mapping, exception_map)
     print(
         "[run_generate] process_orders result: "
         f"suppliers={len(result)}, needs_review={len(needs_review)}, no_mapping={len(no_mapping)}",
@@ -123,13 +133,13 @@ def run_generate(
         result,
         needs_review,
         no_mapping,
-        uploaded,
+        prepared_uploaded,
         mapping_file,
         output_dir=str(output_dir),
     )
 
     validation_summary = validate_quantities(
-        uploaded,
+        prepared_uploaded,
         mapping_file,
         output_path_temp,
         result=result,
@@ -142,7 +152,7 @@ def run_generate(
         result,
         needs_review,
         no_mapping,
-        uploaded,
+        prepared_uploaded,
         mapping_file,
         validation_summary,
         output_dir=str(output_dir),

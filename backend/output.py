@@ -16,6 +16,22 @@ def _is_hyber_file(path, mapping_file=None):
     return path != mapping_file and ('배송준비' in name or '하이버' in name)
 
 
+def _read_order_table(path, header=0, **kwargs):
+    suffix = os.path.splitext(str(path))[1].lower()
+    with open(path, 'rb') as file:
+        signature = file.read(4)
+    if suffix == '.csv' and signature.startswith(b'PK'):
+        return pd.read_excel(path, header=header, engine='openpyxl', **kwargs)
+    if suffix == '.csv':
+        for encoding in ('utf-8-sig', 'cp949', 'euc-kr'):
+            try:
+                return pd.read_csv(path, header=header, encoding=encoding, sep=None, engine='python', **kwargs)
+            except (UnicodeDecodeError, pd.errors.ParserError):
+                continue
+        return pd.read_csv(path, header=header, sep=None, engine='python', **kwargs)
+    return pd.read_excel(path, header=header, **kwargs)
+
+
 def generate_output(result, needs_review, no_mapping, uploaded, mapping_file, validation_summary=None, output_dir="/mnt/user-data/outputs"):
     """
     발주서 텍스트 생성 및 파일 저장
@@ -106,7 +122,7 @@ def generate_output(result, needs_review, no_mapping, uploaded, mapping_file, va
     naver_files = [f for f in uploaded if '스마트스토어' in os.path.basename(f) or '네이버' in os.path.basename(f)]
     for nf in naver_files:
         try:
-            df = pd.read_excel(nf, header=1)
+            df = _read_order_table(nf, header=1)
             d = pd.to_datetime(df['결제일'].dropna().iloc[0])
             dates.append(d)
         except: 
@@ -115,7 +131,7 @@ def generate_output(result, needs_review, no_mapping, uploaded, mapping_file, va
     hyber_files = [f for f in uploaded if _is_hyber_file(f, mapping_file)]
     for hf in hyber_files:
         try:
-            df = pd.read_excel(hf, header=0)
+            df = _read_order_table(hf, header=0)
             d = pd.to_datetime(df['결제일자'].dropna().iloc[0])
             dates.append(d)
         except: 
@@ -228,13 +244,13 @@ def validate_quantities(uploaded, mapping_file, output_path, result=None, no_map
     # 네이버
     naver_files = [f for f in uploaded if '스마트스토어' in os.path.basename(f) or '네이버' in os.path.basename(f)]
     for nf in naver_files:
-        df = pd.read_excel(nf, header=1)
+        df = _read_order_table(nf, header=1)
         주문_total['naver'] += calculate_order_quantity(df, '옵션정보', '수량', '상품번호', 'naver')
 
     # 하이버
     hyber_files = [f for f in uploaded if _is_hyber_file(f, mapping_file)]
     for hf in hyber_files:
-        df = pd.read_excel(hf, header=0)
+        df = _read_order_table(hf, header=0)
         주문_total['hyber'] += calculate_order_quantity(df, '옵션정보', '수량', '상품번호', 'hyber')
 
     # 에이블리
@@ -297,7 +313,7 @@ def validate_quantities(uploaded, mapping_file, output_path, result=None, no_map
     naver_files = [f for f in uploaded if '스마트스토어' in os.path.basename(f) or '네이버' in os.path.basename(f)]
     for nf in naver_files:
         try:
-            df = pd.read_excel(nf, header=1)
+            df = _read_order_table(nf, header=1)
             df_clean = df.dropna(subset=['옵션정보'])
             for _, row in df_clean.iterrows():
                 try:
@@ -312,7 +328,7 @@ def validate_quantities(uploaded, mapping_file, output_path, result=None, no_map
     hyber_files = [f for f in uploaded if _is_hyber_file(f, mapping_file)]
     for hf in hyber_files:
         try:
-            df = pd.read_excel(hf, header=0)
+            df = _read_order_table(hf, header=0)
             df_clean = df.dropna(subset=['옵션정보'])
             for _, row in df_clean.iterrows():
                 try:

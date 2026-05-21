@@ -503,17 +503,6 @@
           <div class="upload-sub">스마트스토어_주문.xlsx</div>
           <div class="upload-filename" id="naverName"></div>
         </div>
-        <div style="display:flex; align-items:center; gap:8px; padding:0 4px;">
-          <label style="font-size:12px; color:var(--text2); white-space:nowrap;">🔒 비밀번호</label>
-          <input id="naverPassword" type="text" value="1111"
-            style="flex:1; padding:7px 10px; border:1.5px solid var(--border); border-radius:var(--radius); font-size:13px; font-family:var(--mono); background:var(--surface2); color:var(--text); outline:none;"
-            placeholder="비밀번호 입력">
-          <label style="display:flex; align-items:center; gap:5px; font-size:12px; color:var(--text2); cursor:pointer; white-space:nowrap;">
-            <input type="checkbox" id="naverNoPassword" onchange="toggleNaverPassword(this)"
-              style="width:14px; height:14px; cursor:pointer; accent-color:var(--accent);">
-            없음
-          </label>
-        </div>
       </div>
       <div class="upload-card" id="hyberCard" ondragover="dragOver(event,'hyberCard')" ondragleave="dragLeave('hyberCard')" ondrop="dropFile(event,'hyber')">
         <input type="file" accept=".xlsx,.xls,.csv" onchange="fileSelected(event,'hyber')" multiple>
@@ -1405,9 +1394,8 @@ async function generate() {
 
   try {
     setProgressVal(10,'주문서 파일 읽는 중...');
-    const naverPassword = document.getElementById('naverPassword').value.trim();
     const naverData = [];
-    for (const f of state.naverFiles) naverData.push(...await readExcel(f, 1, naverPassword));
+    for (const f of state.naverFiles) naverData.push(...await readExcel(f, 1, ''));
     const hyberData = [];
     for (const f of state.hyberFiles) hyberData.push(...await readHyberFile(f));
     const ablyData = [];
@@ -1541,22 +1529,6 @@ function downloadAll() {
   a.href=URL.createObjectURL(blob);
   a.download=filename;
   a.click();
-}
-
-// ═══════════════════════════════════════════════
-// Toast
-// ═══════════════════════════════════════════════
-function toggleNaverPassword(checkbox) {
-  const input = document.getElementById('naverPassword');
-  if (checkbox.checked) {
-    input.value = '';
-    input.disabled = true;
-    input.style.opacity = '0.4';
-  } else {
-    input.disabled = false;
-    input.style.opacity = '1';
-    input.value = '1111';
-  }
 }
 
 function showToast(msg) {

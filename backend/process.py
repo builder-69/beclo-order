@@ -18,6 +18,22 @@ def _is_hyber_file(path, mapping_file=None):
     return path != mapping_file and ('배송준비' in name or '하이버' in name)
 
 
+def _read_order_table(path, header=0, **kwargs):
+    suffix = os.path.splitext(str(path))[1].lower()
+    with open(path, 'rb') as file:
+        signature = file.read(4)
+    if suffix == '.csv' and signature.startswith(b'PK'):
+        return pd.read_excel(path, header=header, engine='openpyxl', **kwargs)
+    if suffix == '.csv':
+        for encoding in ('utf-8-sig', 'cp949', 'euc-kr'):
+            try:
+                return pd.read_csv(path, header=header, encoding=encoding, sep=None, engine='python', **kwargs)
+            except (UnicodeDecodeError, pd.errors.ParserError):
+                continue
+        return pd.read_csv(path, header=header, sep=None, engine='python', **kwargs)
+    return pd.read_excel(path, header=header, **kwargs)
+
+
 def process_orders(uploaded, mapping_file, mapping, exception_map):
     """
     모든 주문서 파일을 처리하여 발주 데이터 생성
@@ -49,14 +65,14 @@ def process_orders(uploaded, mapping_file, mapping, exception_map):
     
     # 네이버 처리
     for nf in naver_files:
-        df = pd.read_excel(nf, header=1)
+        df = _read_order_table(nf, header=1)
         print(f"[process_orders] read naver {_basename(nf)} rows={len(df)} columns={list(df.columns)}", flush=True)
         _process_platform_orders(df, 'naver', '상품번호', '옵션정보', '수량', 
                                 mapping, exception_map, result, needs_review, no_mapping)
     
     # 하이버 처리
     for hf in hyber_files:
-        df = pd.read_excel(hf, header=0)
+        df = _read_order_table(hf, header=0)
         print(f"[process_orders] read hyber {_basename(hf)} rows={len(df)} columns={list(df.columns)}", flush=True)
         _process_platform_orders(df, 'hyber', '상품번호', '옵션정보', '수량',
                                 mapping, exception_map, result, needs_review, no_mapping)
