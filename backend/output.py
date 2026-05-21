@@ -10,6 +10,12 @@ from datetime import date
 from collections import defaultdict
 from helpers import parse_option_items, clean_color_for_output
 
+
+def _is_hyber_file(path, mapping_file=None):
+    name = os.path.basename(path)
+    return path != mapping_file and ('배송준비' in name or '하이버' in name)
+
+
 def generate_output(result, needs_review, no_mapping, uploaded, mapping_file, validation_summary=None, output_dir="/mnt/user-data/outputs"):
     """
     발주서 텍스트 생성 및 파일 저장
@@ -106,7 +112,7 @@ def generate_output(result, needs_review, no_mapping, uploaded, mapping_file, va
         except: 
             pass
 
-    hyber_files = [f for f in uploaded if '배송준비' in os.path.basename(f) and f != mapping_file]
+    hyber_files = [f for f in uploaded if _is_hyber_file(f, mapping_file)]
     for hf in hyber_files:
         try:
             df = pd.read_excel(hf, header=0)
@@ -226,7 +232,7 @@ def validate_quantities(uploaded, mapping_file, output_path, result=None, no_map
         주문_total['naver'] += calculate_order_quantity(df, '옵션정보', '수량', '상품번호', 'naver')
 
     # 하이버
-    hyber_files = [f for f in uploaded if '배송준비' in os.path.basename(f) and f != mapping_file]
+    hyber_files = [f for f in uploaded if _is_hyber_file(f, mapping_file)]
     for hf in hyber_files:
         df = pd.read_excel(hf, header=0)
         주문_total['hyber'] += calculate_order_quantity(df, '옵션정보', '수량', '상품번호', 'hyber')
@@ -303,7 +309,7 @@ def validate_quantities(uploaded, mapping_file, output_path, result=None, no_map
             pass
     
     # 하이버
-    hyber_files = [f for f in uploaded if '배송준비' in os.path.basename(f) and f != mapping_file]
+    hyber_files = [f for f in uploaded if _is_hyber_file(f, mapping_file)]
     for hf in hyber_files:
         try:
             df = pd.read_excel(hf, header=0)

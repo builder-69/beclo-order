@@ -8,6 +8,16 @@ import os
 from collections import defaultdict
 from helpers import normalize, parse_option_items
 
+
+def _basename(path):
+    return os.path.basename(path)
+
+
+def _is_hyber_file(path, mapping_file=None):
+    name = _basename(path)
+    return path != mapping_file and ('배송준비' in name or '하이버' in name)
+
+
 def process_orders(uploaded, mapping_file, mapping, exception_map):
     """
     모든 주문서 파일을 처리하여 발주 데이터 생성
@@ -26,19 +36,28 @@ def process_orders(uploaded, mapping_file, mapping, exception_map):
     no_mapping = []
     
     # 파일 분류
-    naver_files = [f for f in uploaded if '스마트스토어' in os.path.basename(f) or '네이버' in os.path.basename(f)]
-    hyber_files = [f for f in uploaded if '배송준비' in os.path.basename(f) and f != mapping_file]
-    ably_files = [f for f in uploaded if '에이블리' in os.path.basename(f)]
+    naver_files = [f for f in uploaded if '스마트스토어' in _basename(f) or '네이버' in _basename(f)]
+    hyber_files = [f for f in uploaded if _is_hyber_file(f, mapping_file)]
+    ably_files = [f for f in uploaded if '에이블리' in _basename(f)]
+    print(
+        "[process_orders] classified files: "
+        f"naver={len(naver_files)} {[_basename(f) for f in naver_files]}, "
+        f"hyber={len(hyber_files)} {[_basename(f) for f in hyber_files]}, "
+        f"ably={len(ably_files)} {[_basename(f) for f in ably_files]}",
+        flush=True,
+    )
     
     # 네이버 처리
     for nf in naver_files:
         df = pd.read_excel(nf, header=1)
+        print(f"[process_orders] read naver {_basename(nf)} rows={len(df)} columns={list(df.columns)}", flush=True)
         _process_platform_orders(df, 'naver', '상품번호', '옵션정보', '수량', 
                                 mapping, exception_map, result, needs_review, no_mapping)
     
     # 하이버 처리
     for hf in hyber_files:
         df = pd.read_excel(hf, header=0)
+        print(f"[process_orders] read hyber {_basename(hf)} rows={len(df)} columns={list(df.columns)}", flush=True)
         _process_platform_orders(df, 'hyber', '상품번호', '옵션정보', '수량',
                                 mapping, exception_map, result, needs_review, no_mapping)
     
@@ -48,8 +67,11 @@ def process_orders(uploaded, mapping_file, mapping, exception_map):
         ably_sheet = next((s for s in xl.sheet_names if '에이블리_발송 관리' in s), None)
         if ably_sheet:
             df = pd.read_excel(af, sheet_name=ably_sheet, header=0)
+            print(f"[process_orders] read ably {_basename(af)} sheet={ably_sheet} rows={len(df)} columns={list(df.columns)}", flush=True)
             _process_platform_orders(df, 'ably', '판매자 상품코드', '옵션 정보', '수량',
                                     mapping, exception_map, result, needs_review, no_mapping)
+        else:
+            print(f"[process_orders] ably sheet not found in {_basename(af)} sheets={xl.sheet_names}", flush=True)
     
     return result, needs_review, no_mapping
 
@@ -68,21 +90,32 @@ def _process_platform_orders(df, 플랫폼, 번호col, 옵션col, 수량col,
         result, needs_review, no_mapping: 출력 딕셔너리들
     """
 
+    valid_order_rows = 0
+    total_order_qty = 0
+    skipped_number = 0
+    skipped_option = 0
+    no_mapping_before = len(no_mapping)
+    needs_review_before = len(needs_review)
+
     for _, row in df.iterrows():
         try:
             상품번호_raw = row[번호col]
             상품번호 = str(int(float(상품번호_raw))).strip() if 플랫폼 != 'ably' else str(상품번호_raw).strip()
         except:
+            skipped_number += 1
             continue
 
         옵션str = str(row[옵션col]).strip()
         if not 옵션str or 옵션str == 'nan': 
+            skipped_option += 1
             continue
 
         try: 
             수량 = int(row[수량col])
         except: 
             수량 = 1
+        valid_order_rows += 1
+        total_order_qty += 수량
 
         # 예외매핑 확인
         matched_exceptions = []
@@ -194,3 +227,12 @@ def _process_platform_orders(df, 플랫폼, 번호col, 옵션col, 수량col,
 
             qty = 1 if is_multi else 수량
             result[거래처명][거래처상품명][(거래처사이즈, 거래처컬러)] += qty
+
+    print(
+        f"[process_orders] platform={플랫폼} rows={len(df)} valid_order_rows={valid_order_rows} "
+        f"total_order_qty={total_order_qty} "
+        f"skipped_number={skipped_number} skipped_option={skipped_option} "
+        f"new_no_mapping={len(no_mapping) - no_mapping_before} "
+        f"new_needs_review={len(needs_review) - needs_review_before}",
+        flush=True,
+    )

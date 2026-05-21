@@ -87,12 +87,21 @@ def run_generate(
     if not uploaded:
         raise OrderGenerationError("주문서 파일을 1개 이상 업로드해 주세요.")
 
+    print(f"[run_generate] uploaded files ({len(uploaded)}): {[Path(path).name for path in uploaded]}", flush=True)
+
     output_dir = Path(work_dir) / "outputs"
     output_dir.mkdir(parents=True, exist_ok=True)
 
     mapping_file = _find_mapping_file(uploaded)
     mapping = _load_mapping_from_json(mapping_json)
     exception_map = _load_exception_map_from_json(exception_json)
+    print(
+        "[run_generate] mapping source: "
+        f"json_rows={0 if mapping is None else len(mapping)}, "
+        f"exception_keys={len(exception_map)}, "
+        f"mapping_file={Path(mapping_file).name if mapping_file else None}",
+        flush=True,
+    )
 
     if mapping is None:
         if not mapping_file:
@@ -102,7 +111,13 @@ def run_generate(
     if mapping_file is None:
         mapping_file = str(Path(work_dir) / "_mapping_placeholder.xlsx")
 
+    print(f"[run_generate] passing to process_orders: {[Path(path).name for path in uploaded]}", flush=True)
     result, needs_review, no_mapping = process_orders(uploaded, mapping_file, mapping, exception_map)
+    print(
+        "[run_generate] process_orders result: "
+        f"suppliers={len(result)}, needs_review={len(needs_review)}, no_mapping={len(no_mapping)}",
+        flush=True,
+    )
 
     output_path_temp = generate_output(
         result,

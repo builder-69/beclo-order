@@ -1416,6 +1416,12 @@ async function generateWithBackend() {
     if (state.mapping) formData.append('mapping_json', JSON.stringify(state.mapping));
     if (state.exceptionMap) formData.append('exception_json', JSON.stringify(state.exceptionMap));
 
+    console.log('[generate] appending files', {
+      naver: state.naverFiles.map(file => file.name),
+      hyber: state.hyberFiles.map(file => file.name),
+      ably: state.ablyFiles.map(file => file.name),
+    });
+
     for (const file of state.naverFiles) formData.append('naver_files', file);
     for (const file of state.hyberFiles) formData.append('hyber_files', file);
     for (const file of state.ablyFiles) formData.append('ably_files', file);

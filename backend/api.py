@@ -127,6 +127,14 @@ async def generate(
     ably_files = ably_files or []
     all_files = naver_files + hyber_files + ably_files
 
+    print(
+        "[generate] received files: "
+        f"naver={len(naver_files)} {[f.filename for f in naver_files]}, "
+        f"hyber={len(hyber_files)} {[f.filename for f in hyber_files]}, "
+        f"ably={len(ably_files)} {[f.filename for f in ably_files]}",
+        flush=True,
+    )
+
     if not all_files:
         raise HTTPException(status_code=400, detail="주문서 파일을 1개 이상 업로드해 주세요.")
 
@@ -142,6 +150,8 @@ async def generate(
             with path.open("wb") as file:
                 shutil.copyfileobj(upload_file.file, file)
             saved_paths.append(str(path))
+
+        print(f"[generate] saved_paths ({len(saved_paths)}): {saved_paths}", flush=True)
 
         output_path = run_generate(
             saved_paths,
