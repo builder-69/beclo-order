@@ -12,6 +12,7 @@ import os
 import sys
 from pathlib import Path
 from typing import Any
+import re
 
 import pandas as pd
 
@@ -80,7 +81,8 @@ def run_generate(
     work_dir: str | os.PathLike[str],
     mapping_json: str | None = None,
     exception_json: str | None = None,
-) -> str:
+    return_details: bool = False,
+) -> str | dict[str, Any]:
     """
     Run the existing order generation pipeline and return one TXT file path.
     """
@@ -148,7 +150,7 @@ def run_generate(
     )
     validation_summary["거래처_수"] = len(result)
 
-    return generate_output(
+    output_path = generate_output(
         result,
         needs_review,
         no_mapping,
@@ -157,3 +159,71 @@ def run_generate(
         validation_summary,
         output_dir=str(output_dir),
     )
+
+    if return_details:
+        return {
+            "output_path": output_path,
+            "prepared_files": _build_prepared_file_info(prepared_uploaded, mapping_file),
+        }
+    return output_path
+
+
+def _build_prepared_file_info(prepared_uploaded: list[str], mapping_file: str | None) -> list[dict[str, str]]:
+    files: list[dict[str, str]] = []
+    seen_platforms: set[str] = set()
+
+    for path in prepared_uploaded:
+        if mapping_file and str(path) == str(mapping_file):
+            continue
+
+        name = Path(path).name
+        platform = _detect_platform(name)
+        if not platform or platform in seen_platforms:
+            continue
+
+        files.append({
+            "platform": platform,
+            "label": _platform_label(platform),
+            "path": path,
+            "filename": _converted_order_filename(platform, name, Path(path).suffix),
+        })
+        seen_platforms.add(platform)
+
+    return files
+
+
+def _detect_platform(filename: str) -> str | None:
+    if "스마트스토어" in filename or "네이버" in filename:
+        return "naver"
+    if "배송준비" in filename or "하이버" in filename:
+        return "hyber"
+    if "에이블리" in filename:
+        return "ably"
+    return None
+
+
+def _platform_label(platform: str) -> str:
+    return {
+        "naver": "네이버 주문서",
+        "hyber": "하이버 주문서",
+        "ably": "에이블리 주문서",
+    }.get(platform, "주문서")
+
+
+def _converted_order_filename(platform: str, original_name: str, suffix: str) -> str:
+    label = _platform_label(platform)
+    suffix = suffix if suffix else ".xlsx"
+
+    if platform in {"naver", "hyber"}:
+        match = re.search(r"(20\d{6})[_-]?(\d{4})", original_name)
+        if match:
+            yyyymmdd = match.group(1)
+            hhmm = match.group(2)
+            return f"{label}_{yyyymmdd[2:]}_{hhmm}{suffix}"
+
+    if platform == "ably":
+        match = re.search(r"(20\d{6})", original_name)
+        if match:
+            return f"{label}_{match.group(1)[2:]}{suffix}"
+
+    return f"{label}{suffix}"

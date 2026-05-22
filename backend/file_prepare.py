@@ -133,6 +133,8 @@ def _extract_zip(source: Path, output_dir: Path, password: str | None) -> list[s
                         raise FilePreparationError("하이버 zip 비밀번호가 올바르지 않습니다.") from exc
                     raise
 
+                if target.suffix.lower() == ".csv" and data.startswith(b"PK"):
+                    target = target.with_suffix(".xlsx")
                 target.write_bytes(data)
                 extracted.append(str(target))
     except zipfile.BadZipFile as exc:

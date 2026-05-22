@@ -1,4 +1,5 @@
 from pathlib import Path
+import base64
 import shutil
 import tempfile
 from typing import Annotated
@@ -11,7 +12,7 @@ import traceback
 
 from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 import pandas as pd
 
@@ -153,11 +154,12 @@ async def generate(
 
         print(f"[generate] saved_paths ({len(saved_paths)}): {saved_paths}", flush=True)
 
-        output_path = run_generate(
+        generate_result = run_generate(
             saved_paths,
             work_dir,
             mapping_json=mapping_json,
             exception_json=exception_json,
+            return_details=True,
         )
     except OrderGenerationError as exc:
         shutil.rmtree(work_dir, ignore_errors=True)
@@ -173,12 +175,23 @@ async def generate(
             detail="발주서 생성 중 오류가 발생했습니다. 업로드 파일과 상품리스트 연결 상태를 확인해 주세요.",
         ) from exc
 
-    output_name = Path(output_path).name
+    output_path = Path(generate_result["output_path"])
+    output_name = output_path.name
+    converted_files = []
+    for file_info in generate_result.get("prepared_files", []):
+        file_path = Path(file_info["path"])
+        converted_files.append({
+            "platform": file_info["platform"],
+            "label": file_info["label"],
+            "filename": file_info["filename"],
+            "contentBase64": base64.b64encode(file_path.read_bytes()).decode("ascii"),
+        })
+
+    response = {
+        "filename": output_name,
+        "txt": output_path.read_text(encoding="utf-8"),
+        "convertedFiles": converted_files,
+    }
     background_tasks.add_task(shutil.rmtree, work_dir, ignore_errors=True)
 
-    return FileResponse(
-        output_path,
-        media_type="text/plain; charset=utf-8",
-        filename=output_name,
-        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quote(output_name)}"},
-    )
+    return JSONResponse(response, background=background_tasks)

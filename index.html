@@ -5,8 +5,6 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>베클로 발주서 생성기</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/officecrypto-tool/dist/index.umd.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;700&family=JetBrains+Mono:wght@400;600&display=swap');
 
@@ -114,6 +112,7 @@
     font-weight: 700;
     flex-shrink: 0;
   }
+  .section-num-muted { background: #898170; }
   .section-title {
     font-size: 15px;
     font-weight: 700;
@@ -383,6 +382,13 @@
     flex-wrap: wrap;
   }
 
+  .converted-section { display: none; }
+  .converted-buttons {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+
   /* Warning Section */
   .warning-section {
     margin-top: 20px;
@@ -537,10 +543,19 @@
     <div class="error-box" id="errorBox"></div>
   </div>
 
+  <!-- Converted Orders -->
+  <div class="section converted-section" id="convertedSection">
+    <div class="section-header">
+      <div class="section-num section-num-muted">↧</div>
+      <div class="section-title">주문서 변환</div>
+    </div>
+    <div class="converted-buttons" id="convertedButtons"></div>
+  </div>
+
   <!-- Result -->
   <div class="section result-section" id="resultSection">
     <div class="section-header">
-      <div class="section-num">✓</div>
+      <div class="section-num section-num-muted">✓</div>
       <div class="section-title">발주서 완성</div>
     </div>
 
@@ -570,6 +585,19 @@
 // ═══════════════════════════════════════════════
 // 상태
 // ═══════════════════════════════════════════════
+const LOCAL_API_BASE_URL = "http://127.0.0.1:8000";
+const PROD_API_BASE_URL = "https://beclo-order-api.onrender.com";
+
+function getApiBaseUrl() {
+  const hostname = window.location.hostname;
+  if (hostname === "127.0.0.1" || hostname === "localhost") {
+    return LOCAL_API_BASE_URL;
+  }
+  return PROD_API_BASE_URL;
+}
+
+const API_BASE_URL = getApiBaseUrl();
+
 const state = {
   mapping: null,        // DataFrame (rows array)
   exceptionMap: null,   // dict
@@ -581,7 +609,9 @@ const state = {
   noMapping: [],
   outputBySupplier: {},
   fullOutput: '',
+  generatedFilename: '',
   currentTab: null,
+  convertedOrderFiles: [],
 };
 
 // ═══════════════════════════════════════════════
@@ -1148,26 +1178,24 @@ async function loadSheets() {
   txt.textContent='불러오는 중...'; txt.style.color='var(--warn)';
 
   try {
-    const csvUrl1 = `https://docs.google.com/spreadsheets/d/${id}/gviz/tq?tqx=out:csv&sheet=상품리스트`;
-    const csvUrl2 = `https://docs.google.com/spreadsheets/d/${id}/gviz/tq?tqx=out:csv&sheet=예외매핑`;
+    const response = await fetch(`${API_BASE_URL}/load-sheets`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sheets_url: url }),
+    });
+    if (!response.ok) throw new Error('구글시트를 불러올 수 없습니다. 공유 설정과 탭 이름을 확인하세요.');
 
-    const [r1, r2] = await Promise.all([fetch(csvUrl1), fetch(csvUrl2)]);
-    if (!r1.ok || !r2.ok) throw new Error('시트를 불러올 수 없어요. 공유 설정을 확인하세요.');
-
-    const [csv1, csv2] = await Promise.all([r1.text(), r2.text()]);
-    const mappingRows = parseCsv(csv1);
-    const excRows = parseCsv(csv2);
-
-    state.mapping = buildMapping(mappingRows);
-    state.exceptionMap = loadExceptionMapping(excRows);
+    const data = await response.json();
+    state.mapping = data.mapping;
+    state.exceptionMap = data.exceptionMap;
 
     dot.className='status-dot ok';
-    txt.textContent=`연결 완료 — 상품 ${mappingRows.length}개, 예외매핑 ${excRows.length}개`;
+    txt.textContent=`연결 완료 — 상품 ${data.mappingRowsCount || 0}개, 예외매핑 ${data.exceptionRowsCount || 0}개`;
     txt.style.color='var(--success)';
     showToast('거래처 상품리스트 불러오기 완료!');
   } catch(e) {
     dot.className='status-dot err';
-    txt.textContent=`오류: ${e.message}`;
+    txt.textContent='구글시트를 불러올 수 없습니다. 공유 설정과 탭 이름을 확인하세요.';
     txt.style.color='var(--error)';
   }
 }
@@ -1242,7 +1270,7 @@ async function readExcel(file, headerRow=0, password='') {
         // 비밀번호 있으면 해제 시도
         if (password) {
           try {
-            // officecrypto-tool 사용 시도
+            // Legacy mode: optional OfficeCrypto가 있으면 사용하고, 없으면 SheetJS로 시도
             if (typeof OfficeCrypto !== 'undefined') {
               arrayBuffer = await OfficeCrypto.decrypt(arrayBuffer, {password});
             } else {
@@ -1374,7 +1402,282 @@ async function readAblyExcel(file) {
 // ═══════════════════════════════════════════════
 // 생성 실행
 // ═══════════════════════════════════════════════
+async function generateWithBackend() {
+  const errBox = document.getElementById('errorBox');
+  errBox.style.display = 'none';
+
+  const hasOrder = state.naverFiles.length || state.hyberFiles.length || state.ablyFiles.length;
+  if (!hasOrder) {
+    showError('Please upload at least one order file.');
+    return;
+  }
+
+  setProgress(true);
+  setProgressVal(10, 'Uploading files to backend...');
+  document.getElementById('generateBtn').disabled = true;
+  document.getElementById('resultSection').style.display = 'none';
+
+  try {
+    const formData = new FormData();
+    formData.append('sheets_url', document.getElementById('sheetsUrl').value.trim());
+    if (state.mapping) formData.append('mapping_json', JSON.stringify(state.mapping));
+    if (state.exceptionMap) formData.append('exception_json', JSON.stringify(state.exceptionMap));
+
+    console.log('[generate] appending files', {
+      naver: state.naverFiles.map(file => file.name),
+      hyber: state.hyberFiles.map(file => file.name),
+      ably: state.ablyFiles.map(file => file.name),
+    });
+
+    for (const file of state.naverFiles) formData.append('naver_files', file);
+    for (const file of state.hyberFiles) formData.append('hyber_files', file);
+    for (const file of state.ablyFiles) formData.append('ably_files', file);
+
+    setProgressVal(45, 'Processing in backend...');
+    const response = await fetch(`${API_BASE_URL}/generate`, {
+      method: 'POST',
+      body: formData,
+    });
+
+    if (!response.ok) {
+      let message = `Backend request failed (${response.status})`;
+      try {
+        const errorBody = await response.json();
+        message = errorBody.detail || errorBody.message || message;
+      } catch (_) {}
+      throw new Error(message);
+    }
+
+    const data = await response.json();
+    state.fullOutput = data.txt || '';
+    state.generatedFilename = data.filename || makeTxtFilename();
+    state.convertedOrderFiles = data.convertedFiles || [];
+
+    renderBackendTextResult(state.fullOutput);
+    renderConvertedOrderDownloads();
+
+    setProgressVal(100, '발주서 생성 완료');
+    setTimeout(() => {
+      setProgress(false);
+      showToast('발주서 생성이 완료되었습니다.');
+    }, 300);
+  } catch (e) {
+    setProgress(false);
+    showError(`Error: ${e.message}`);
+    console.error(e);
+  } finally {
+    document.getElementById('generateBtn').disabled = false;
+  }
+}
+
+function getDownloadFilename(contentDisposition) {
+  if (!contentDisposition) return '';
+  const utf8Match = contentDisposition.match(/filename\*=UTF-8''([^;]+)/i);
+  if (utf8Match) return decodeURIComponent(utf8Match[1]);
+  const asciiMatch = contentDisposition.match(/filename="?([^"]+)"?/i);
+  return asciiMatch ? asciiMatch[1] : '';
+}
+
+function makeTxtFilename() {
+  const today = new Date();
+  const mm = String(today.getMonth() + 1).padStart(2, '0');
+  const dd = String(today.getDate()).padStart(2, '0');
+  return `발주서_${mm}${dd}.txt`;
+}
+
+function downloadBlob(blob, filename) {
+  const a = document.createElement('a');
+  const url = URL.createObjectURL(blob);
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
+function base64ToBlob(base64, mimeType='application/octet-stream') {
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return new Blob([bytes], { type: mimeType });
+}
+
+function renderConvertedOrderDownloads() {
+  const section = document.getElementById('convertedSection');
+  const buttons = document.getElementById('convertedButtons');
+  buttons.innerHTML = '';
+
+  if (!state.convertedOrderFiles.length) {
+    section.style.display = 'none';
+    return;
+  }
+
+  section.style.display = 'block';
+  for (const file of state.convertedOrderFiles) {
+    const btn = document.createElement('button');
+    btn.className = 'btn btn-secondary';
+    btn.textContent = file.label || file.filename;
+    btn.onclick = () => {
+      const blob = base64ToBlob(file.contentBase64);
+      downloadBlob(blob, file.filename);
+    };
+    buttons.appendChild(btn);
+  }
+}
+
+function parseSupplierMessagesFromTxt(text) {
+  const lines = String(text || '').split(/\r?\n/);
+  const sections = {};
+  let currentSection = '수량 검수 결과';
+  let currentLines = [];
+
+  function uniqueTitle(title) {
+    if (!sections[title]) return title;
+    let i = 2;
+    while (sections[`${title} ${i}`]) i++;
+    return `${title} ${i}`;
+  }
+
+  function flush() {
+    const message = currentLines.join('\n').trim();
+    if (message) sections[uniqueTitle(currentSection)] = message;
+  }
+
+  for (const line of lines) {
+    const match = line.match(/^\[([^\]]+)\]\s*$/);
+    if (match) {
+      flush();
+      currentSection = match[1].trim();
+      currentLines = [line];
+      continue;
+    }
+
+    currentLines.push(line);
+  }
+
+  flush();
+  return sections;
+}
+
+function escapeHtml(text) {
+  return String(text || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+
+function renderBackendTextResult(fullText) {
+  state.fullOutput = fullText;
+  const parsedSections = parseSupplierMessagesFromTxt(fullText);
+  const validationText = parsedSections['수량 검수 결과'] || '';
+  delete parsedSections['수량 검수 결과'];
+
+  state.outputBySupplier = parsedSections;
+  state.currentTab = null;
+
+  const sections = Object.keys(state.outputBySupplier);
+  if (!sections.length && !validationText) return;
+
+  const section = document.getElementById('resultSection');
+  section.style.display = 'block';
+
+  document.getElementById('resultMeta').innerHTML = `
+    <div class="meta-card">
+      <div class="meta-label">표시 섹션</div>
+      <div class="meta-value">${sections.length}<span style="font-size:14px;font-weight:400">개</span></div>
+    </div>
+    <div class="meta-card">
+      <div class="meta-label">TXT 다운로드</div>
+      <div class="meta-value ok">완료</div>
+    </div>
+    <div class="meta-card">
+      <div class="meta-label">화면 미리보기</div>
+      <div class="meta-value ok">가능</div>
+    </div>
+  `;
+
+  document.getElementById('validationBanner').innerHTML = validationText
+    ? `<div class="validation-banner pass" style="align-items:flex-start;">
+        <span class="validation-icon">OK</span>
+        <div style="flex:1;">
+          <div style="font-weight:700; margin-bottom:8px;">수량 검수 결과</div>
+          <pre style="margin:0; white-space:pre-wrap; font-family:var(--mono); font-size:12px; line-height:1.7;">${escapeHtml(validationText)}</pre>
+        </div>
+      </div>`
+    : `<div class="validation-banner pass"><span class="validation-icon">OK</span> TXT 다운로드가 완료되었습니다. 거래처별 내용을 화면에서 확인할 수 있습니다.</div>`;
+
+  const tabsEl = document.getElementById('supplierTabs');
+  tabsEl.innerHTML = '';
+  for (const supplier of sections) {
+    const btn = document.createElement('button');
+    btn.className = 'tab';
+    btn.textContent = supplier;
+    btn.onclick = () => selectTab(supplier);
+    tabsEl.appendChild(btn);
+  }
+
+  document.getElementById('warningSection').innerHTML = '';
+  if (sections.length) {
+    selectTab(sections[0]);
+  } else {
+    document.getElementById('currentSupplierLabel').textContent = '';
+    document.getElementById('outputBox').textContent = '';
+  }
+  section.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function renderBackendResult(data) {
+  const section = document.getElementById('resultSection');
+  section.style.display = 'block';
+
+  document.getElementById('resultMeta').innerHTML = `
+    <div class="meta-card">
+      <div class="meta-label">Suppliers</div>
+      <div class="meta-value">${data.suppliers_count || 0}</div>
+    </div>
+    <div class="meta-card">
+      <div class="meta-label">Uploaded Files</div>
+      <div class="meta-value">${data.order_count || 0}</div>
+    </div>
+    <div class="meta-card">
+      <div class="meta-label">Generated Qty</div>
+      <div class="meta-value ${data.is_valid ? 'ok' : 'warn'}">${data.generated_count || 0}</div>
+    </div>
+  `;
+
+  document.getElementById('validationBanner').innerHTML = data.is_valid
+    ? `<div class="validation-banner pass"><span class="validation-icon">OK</span> Backend validation passed.</div>`
+    : `<div class="validation-banner fail"><span class="validation-icon">!</span> Backend response received. Difference: ${data.difference || 0}</div>`;
+
+  const tabsEl = document.getElementById('supplierTabs');
+  tabsEl.innerHTML = '';
+  const suppliers = Object.keys(state.outputBySupplier).sort();
+  if (suppliers.length) {
+    for (const supplier of suppliers) {
+      const btn = document.createElement('button');
+      btn.className = 'tab';
+      btn.textContent = supplier;
+      btn.onclick = () => selectTab(supplier);
+      tabsEl.appendChild(btn);
+    }
+    selectTab(suppliers[0]);
+  } else {
+    document.getElementById('currentSupplierLabel').textContent = '';
+    document.getElementById('outputBox').textContent = data.message || '';
+  }
+
+  document.getElementById('warningSection').innerHTML = '';
+  section.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
 async function generate() {
+  await generateWithBackend();
+}
+
+async function generateLegacy() {
   const errBox = document.getElementById('errorBox');
   errBox.style.display='none';
 
@@ -1516,19 +1819,33 @@ function selectTab(supplier) {
 
 function copyCurrentTab() {
   const text = document.getElementById('outputBox').textContent;
-  navigator.clipboard.writeText(text).then(()=>showToast('클립보드에 복사했어요!'));
+  copyTextToClipboard(text)
+    .then(() => showToast('클립보드에 복사했어요!'))
+    .catch(() => showToast('복사할 수 없습니다. 내용을 직접 선택해 복사해 주세요.'));
+}
+
+async function copyTextToClipboard(text) {
+  if (navigator.clipboard && window.isSecureContext) {
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+
+  const textarea = document.createElement('textarea');
+  textarea.value = text;
+  textarea.setAttribute('readonly', '');
+  textarea.style.position = 'fixed';
+  textarea.style.top = '-1000px';
+  document.body.appendChild(textarea);
+  textarea.select();
+  const ok = document.execCommand('copy');
+  textarea.remove();
+  if (!ok) throw new Error('copy failed');
 }
 
 function downloadAll() {
-  const today = new Date();
-  const mm=String(today.getMonth()+1).padStart(2,'0');
-  const dd=String(today.getDate()).padStart(2,'0');
-  const filename=`발주서_${mm}${dd}.txt`;
+  const filename = state.generatedFilename || makeTxtFilename();
   const blob=new Blob([state.fullOutput],{type:'text/plain;charset=utf-8'});
-  const a=document.createElement('a');
-  a.href=URL.createObjectURL(blob);
-  a.download=filename;
-  a.click();
+  downloadBlob(blob, filename);
 }
 
 function showToast(msg) {

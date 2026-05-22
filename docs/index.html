@@ -112,6 +112,7 @@
     font-weight: 700;
     flex-shrink: 0;
   }
+  .section-num-muted { background: #898170; }
   .section-title {
     font-size: 15px;
     font-weight: 700;
@@ -381,6 +382,13 @@
     flex-wrap: wrap;
   }
 
+  .converted-section { display: none; }
+  .converted-buttons {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+
   /* Warning Section */
   .warning-section {
     margin-top: 20px;
@@ -535,10 +543,19 @@
     <div class="error-box" id="errorBox"></div>
   </div>
 
+  <!-- Converted Orders -->
+  <div class="section converted-section" id="convertedSection">
+    <div class="section-header">
+      <div class="section-num section-num-muted">↧</div>
+      <div class="section-title">주문서 변환</div>
+    </div>
+    <div class="converted-buttons" id="convertedButtons"></div>
+  </div>
+
   <!-- Result -->
   <div class="section result-section" id="resultSection">
     <div class="section-header">
-      <div class="section-num">✓</div>
+      <div class="section-num section-num-muted">✓</div>
       <div class="section-title">발주서 완성</div>
     </div>
 
@@ -592,7 +609,9 @@ const state = {
   noMapping: [],
   outputBySupplier: {},
   fullOutput: '',
+  generatedFilename: '',
   currentTab: null,
+  convertedOrderFiles: [],
 };
 
 // ═══════════════════════════════════════════════
@@ -1429,21 +1448,18 @@ async function generateWithBackend() {
       throw new Error(message);
     }
 
-    const blob = await response.blob();
-    const filename = getDownloadFilename(response.headers.get('Content-Disposition')) || makeTxtFilename();
-    downloadBlob(blob, filename);
+    const data = await response.json();
+    state.fullOutput = data.txt || '';
+    state.generatedFilename = data.filename || makeTxtFilename();
+    state.convertedOrderFiles = data.convertedFiles || [];
 
-    try {
-      const txt = await blob.text();
-      renderBackendTextResult(txt);
-    } catch (parseErr) {
-      console.warn('TXT preview parsing failed:', parseErr);
-    }
+    renderBackendTextResult(state.fullOutput);
+    renderConvertedOrderDownloads();
 
-    setProgressVal(100, 'TXT download ready');
+    setProgressVal(100, '발주서 생성 완료');
     setTimeout(() => {
       setProgress(false);
-      showToast('발주서 TXT 파일 다운로드를 시작했습니다.');
+      showToast('발주서 생성이 완료되었습니다.');
     }, 300);
   } catch (e) {
     setProgress(false);
@@ -1478,6 +1494,36 @@ function downloadBlob(blob, filename) {
   a.click();
   a.remove();
   URL.revokeObjectURL(url);
+}
+
+function base64ToBlob(base64, mimeType='application/octet-stream') {
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return new Blob([bytes], { type: mimeType });
+}
+
+function renderConvertedOrderDownloads() {
+  const section = document.getElementById('convertedSection');
+  const buttons = document.getElementById('convertedButtons');
+  buttons.innerHTML = '';
+
+  if (!state.convertedOrderFiles.length) {
+    section.style.display = 'none';
+    return;
+  }
+
+  section.style.display = 'block';
+  for (const file of state.convertedOrderFiles) {
+    const btn = document.createElement('button');
+    btn.className = 'btn btn-secondary';
+    btn.textContent = file.label || file.filename;
+    btn.onclick = () => {
+      const blob = base64ToBlob(file.contentBase64);
+      downloadBlob(blob, file.filename);
+    };
+    buttons.appendChild(btn);
+  }
 }
 
 function parseSupplierMessagesFromTxt(text) {
@@ -1773,19 +1819,33 @@ function selectTab(supplier) {
 
 function copyCurrentTab() {
   const text = document.getElementById('outputBox').textContent;
-  navigator.clipboard.writeText(text).then(()=>showToast('클립보드에 복사했어요!'));
+  copyTextToClipboard(text)
+    .then(() => showToast('클립보드에 복사했어요!'))
+    .catch(() => showToast('복사할 수 없습니다. 내용을 직접 선택해 복사해 주세요.'));
+}
+
+async function copyTextToClipboard(text) {
+  if (navigator.clipboard && window.isSecureContext) {
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+
+  const textarea = document.createElement('textarea');
+  textarea.value = text;
+  textarea.setAttribute('readonly', '');
+  textarea.style.position = 'fixed';
+  textarea.style.top = '-1000px';
+  document.body.appendChild(textarea);
+  textarea.select();
+  const ok = document.execCommand('copy');
+  textarea.remove();
+  if (!ok) throw new Error('copy failed');
 }
 
 function downloadAll() {
-  const today = new Date();
-  const mm=String(today.getMonth()+1).padStart(2,'0');
-  const dd=String(today.getDate()).padStart(2,'0');
-  const filename=`발주서_${mm}${dd}.txt`;
+  const filename = state.generatedFilename || makeTxtFilename();
   const blob=new Blob([state.fullOutput],{type:'text/plain;charset=utf-8'});
-  const a=document.createElement('a');
-  a.href=URL.createObjectURL(blob);
-  a.download=filename;
-  a.click();
+  downloadBlob(blob, filename);
 }
 
 function showToast(msg) {
