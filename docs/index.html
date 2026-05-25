@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>베클로 발주서 생성기</title>
+<title>Vendor PO</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;700&family=JetBrains+Mono:wght@400;600&display=swap');
@@ -462,7 +462,7 @@
 <body>
 
 <header>
-  <div class="logo">베클로 발주서 생성기 <span>BECLO Order System</span></div>
+  <div class="logo">Vendor PO <span>BECLO Purchase Order System</span></div>
   <div class="header-badge">v2.0_0515_0222</div>
 </header>
 
@@ -586,11 +586,11 @@
 // 상태
 // ═══════════════════════════════════════════════
 const LOCAL_API_BASE_URL = "http://127.0.0.1:8000";
-const PROD_API_BASE_URL = "https://beclo-order-api.onrender.com";
+const PROD_API_BASE_URL = "https://vendor-po-api.onrender.com";
 
 function getApiBaseUrl() {
   const hostname = window.location.hostname;
-  if (hostname === "127.0.0.1" || hostname === "localhost") {
+  if (window.location.protocol === "file:" || hostname === "127.0.0.1" || hostname === "localhost") {
     return LOCAL_API_BASE_URL;
   }
   return PROD_API_BASE_URL;

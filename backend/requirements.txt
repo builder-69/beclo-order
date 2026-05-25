@@ -5,3 +5,5 @@ openpyxl
 python-multipart
 msoffcrypto-tool
 pyzipper
+certifi
+truststore

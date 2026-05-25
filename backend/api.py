@@ -1,6 +1,7 @@
 from pathlib import Path
 import base64
 import shutil
+import ssl
 import tempfile
 from typing import Annotated
 from urllib.parse import quote
@@ -14,7 +15,14 @@ from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, UploadF
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
+import certifi
 import pandas as pd
+import truststore
+
+try:
+    truststore.inject_into_ssl()
+except Exception:
+    pass
 
 try:
     from main import OrderGenerationError, run_generate
@@ -43,7 +51,7 @@ app.add_middleware(
 
 @app.get("/")
 def root():
-    return {"message": "beclo-order backend running"}
+    return {"message": "Vendor PO backend running"}
 
 
 def _extract_sheet_id(sheets_url: str) -> str:
@@ -59,9 +67,13 @@ def _read_google_sheet_csv(sheet_id: str, sheet_name: str) -> pd.DataFrame:
         f"?tqx=out:csv&sheet={quote(sheet_name, safe='')}"
     )
     print(f"[load-sheets] {sheet_name} CSV URL: {csv_url}", flush=True)
-    request = Request(csv_url, headers={"User-Agent": "beclo-order/1.0"})
+    request = Request(csv_url, headers={"User-Agent": "vendor-po/1.0"})
     try:
-        with urlopen(request, timeout=20) as response:
+        ssl_context = truststore.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+    except Exception:
+        ssl_context = ssl.create_default_context(cafile=certifi.where())
+    try:
+        with urlopen(request, timeout=20, context=ssl_context) as response:
             csv_text = response.read().decode("utf-8-sig", errors="replace")
             print(f"[load-sheets] {sheet_name} status_code: {response.status}", flush=True)
             print(f"[load-sheets] {sheet_name} response preview: {csv_text[:300]}", flush=True)
@@ -139,7 +151,7 @@ async def generate(
     if not all_files:
         raise HTTPException(status_code=400, detail="주문서 파일을 1개 이상 업로드해 주세요.")
 
-    work_dir = Path(tempfile.mkdtemp(prefix="beclo-order-"))
+    work_dir = Path(tempfile.mkdtemp(prefix="vendor-po-"))
     upload_dir = work_dir / "uploads"
     upload_dir.mkdir(parents=True, exist_ok=True)
 

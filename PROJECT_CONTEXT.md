@@ -1,17 +1,18 @@
 # 프로젝트명
 
-beclo-order
+Vendor PO (`vendor-po`)
 
 # 프로젝트 목표
 
-기존 index.html 기반 발주서 생성 웹사이트를
+기존 index.html 기반 Vendor PO 생성 웹사이트를
 frontend + Python FastAPI backend 구조로 분리한다.
 
 # 현재 구조
 
-- frontend/index.html: 웹 화면
+- frontend/index.html: Vendor PO 웹 화면
 - backend/: 기존 Python 주문 처리 로직 보관
-- backend/main.py: FastAPI 서버 예정
+- backend/api.py: FastAPI 서버
+- backend/main.py: 발주서 생성 처리 진입점
 - PROJECT_CONTEXT.md: Codex 작업 기준 문서
 
 # 중요한 원칙
