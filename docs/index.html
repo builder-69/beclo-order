@@ -191,7 +191,7 @@
   /* File Upload */
   .upload-grid {
     display: grid;
-    grid-template-columns: 1fr 1fr 1fr;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 12px;
     align-items: start;
   }
@@ -206,7 +206,8 @@
     transition: all 0.15s;
     position: relative;
     background: var(--surface2);
-    min-height: 140px;
+    min-width: 0;
+    height: 140px;
     box-sizing: border-box;
   }
   .upload-card:hover { border-color: var(--accent); background: var(--accent-bg); }
@@ -223,6 +224,8 @@
   }
   .upload-sub { font-size: 11px; color: var(--text3); }
   .upload-filename {
+    width: 100%;
+    min-height: 16px;
     font-size: 11px;
     color: var(--accent);
     font-family: var(--mono);
