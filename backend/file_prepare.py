@@ -5,6 +5,8 @@ import shutil
 import zipfile
 from pathlib import Path, PurePosixPath
 
+from helpers import normalize_filename
+
 
 SUPPORTED_ORDER_EXTENSIONS = {".xlsx", ".xls", ".csv"}
 
@@ -14,7 +16,7 @@ class FilePreparationError(Exception):
 
 
 def _basename(path: str | os.PathLike[str]) -> str:
-    return os.path.basename(str(path))
+    return normalize_filename(os.path.basename(str(path)))
 
 
 def _is_naver_file(path: str | os.PathLike[str]) -> bool:

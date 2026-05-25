@@ -6,11 +6,11 @@
 import pandas as pd
 import os
 from collections import defaultdict
-from helpers import normalize, parse_option_items
+from helpers import normalize, normalize_filename, parse_option_items
 
 
 def _basename(path):
-    return os.path.basename(path)
+    return normalize_filename(os.path.basename(path))
 
 
 def _is_hyber_file(path, mapping_file=None):

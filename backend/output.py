@@ -8,11 +8,15 @@ import os
 import re
 from datetime import date
 from collections import defaultdict
-from helpers import parse_option_items, clean_color_for_output
+from helpers import clean_color_for_output, normalize_filename, parse_option_items
+
+
+def _basename(path):
+    return normalize_filename(os.path.basename(path))
 
 
 def _is_hyber_file(path, mapping_file=None):
-    name = os.path.basename(path)
+    name = _basename(path)
     return path != mapping_file and ('배송준비' in name or '하이버' in name)
 
 
@@ -119,7 +123,7 @@ def generate_output(result, needs_review, no_mapping, uploaded, mapping_file, va
     # 파일명 생성
     dates = []
     
-    naver_files = [f for f in uploaded if '스마트스토어' in os.path.basename(f) or '네이버' in os.path.basename(f)]
+    naver_files = [f for f in uploaded if '스마트스토어' in _basename(f) or '네이버' in _basename(f)]
     for nf in naver_files:
         try:
             df = _read_order_table(nf, header=1)
@@ -242,7 +246,7 @@ def validate_quantities(uploaded, mapping_file, output_path, result=None, no_map
     주문_total = {'naver': 0, 'hyber': 0, 'ably': 0}
 
     # 네이버
-    naver_files = [f for f in uploaded if '스마트스토어' in os.path.basename(f) or '네이버' in os.path.basename(f)]
+    naver_files = [f for f in uploaded if '스마트스토어' in _basename(f) or '네이버' in _basename(f)]
     for nf in naver_files:
         df = _read_order_table(nf, header=1)
         주문_total['naver'] += calculate_order_quantity(df, '옵션정보', '수량', '상품번호', 'naver')
@@ -254,7 +258,7 @@ def validate_quantities(uploaded, mapping_file, output_path, result=None, no_map
         주문_total['hyber'] += calculate_order_quantity(df, '옵션정보', '수량', '상품번호', 'hyber')
 
     # 에이블리
-    ably_files = [f for f in uploaded if '에이블리' in os.path.basename(f)]
+    ably_files = [f for f in uploaded if '에이블리' in _basename(f)]
     for af in ably_files:
         xl = pd.ExcelFile(af)
         ably_sheet = next((s for s in xl.sheet_names if '에이블리_발송 관리' in s), None)
@@ -310,7 +314,7 @@ def validate_quantities(uploaded, mapping_file, output_path, result=None, no_map
     주문서_표시용 = {'naver': 0, 'hyber': 0, 'ably': 0}
     
     # 네이버
-    naver_files = [f for f in uploaded if '스마트스토어' in os.path.basename(f) or '네이버' in os.path.basename(f)]
+    naver_files = [f for f in uploaded if '스마트스토어' in _basename(f) or '네이버' in _basename(f)]
     for nf in naver_files:
         try:
             df = _read_order_table(nf, header=1)
@@ -340,7 +344,7 @@ def validate_quantities(uploaded, mapping_file, output_path, result=None, no_map
             pass
     
     # 에이블리
-    ably_files = [f for f in uploaded if '에이블리' in os.path.basename(f)]
+    ably_files = [f for f in uploaded if '에이블리' in _basename(f)]
     for af in ably_files:
         try:
             xl = pd.ExcelFile(af)

@@ -10,6 +10,7 @@ from urllib.request import Request, urlopen
 from io import StringIO
 import re
 import traceback
+import unicodedata
 
 from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
@@ -158,7 +159,7 @@ async def generate(
     try:
         saved_paths: list[str] = []
         for upload_file in all_files:
-            filename = Path(upload_file.filename or "upload.xlsx").name
+            filename = Path(unicodedata.normalize("NFC", upload_file.filename or "upload.xlsx")).name
             path = upload_dir / filename
             with path.open("wb") as file:
                 shutil.copyfileobj(upload_file.file, file)

@@ -4,11 +4,16 @@
 """
 
 import re
+import unicodedata
 import pandas as pd
 
 def normalize(s):
     """문자열 정규화 - 공백, 특수문자 제거"""
     return str(s).replace(' ','').replace('/','').replace('-','').replace('_','').lower().strip()
+
+def normalize_filename(s):
+    """macOS decomposed Korean filenames must match the same platform keywords."""
+    return unicodedata.normalize('NFC', str(s))
 
 def clean_color_for_output(컬러):
     """

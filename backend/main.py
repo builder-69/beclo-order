@@ -22,6 +22,7 @@ from mapping import build_mapping, load_exception_mapping
 from output import generate_output, validate_quantities
 from process import process_orders
 from file_prepare import FilePreparationError, prepare_uploaded_order_files
+from helpers import normalize_filename
 
 
 class OrderGenerationError(Exception):
@@ -71,7 +72,7 @@ def _load_mapping_from_file(mapping_file: str) -> tuple[pd.DataFrame, dict[tuple
 def _find_mapping_file(uploaded: list[str]) -> str | None:
     keywords = ["베클로", "거래처", "상품리스트"]
     return next(
-        (path for path in uploaded if any(keyword in os.path.basename(path) for keyword in keywords)),
+        (path for path in uploaded if any(keyword in normalize_filename(os.path.basename(path)) for keyword in keywords)),
         None,
     )
 
@@ -193,6 +194,7 @@ def _build_prepared_file_info(prepared_uploaded: list[str], mapping_file: str | 
 
 
 def _detect_platform(filename: str) -> str | None:
+    filename = normalize_filename(filename)
     if "스마트스토어" in filename or "네이버" in filename:
         return "naver"
     if "배송준비" in filename or "하이버" in filename:
